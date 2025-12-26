@@ -1,4 +1,4 @@
-# Use official Python 3.10 image
+# Use lightweight Python image
 FROM python:3.10-slim
 
 # Set working directory
@@ -8,11 +8,11 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy backend code
+# Copy the rest of the app code
 COPY . .
 
-# Expose port 8080 (Cloud Run standard)
-EXPOSE 8080
+# Expose port (Render provides $PORT)
+EXPOSE 10000
 
-# Run the FastAPI server on Cloud Run
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+# Start FastAPI using uvicorn with Render's port
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port $PORT"]
