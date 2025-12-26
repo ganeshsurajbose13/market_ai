@@ -48,6 +48,17 @@ def wave_theory(df: pd.DataFrame) -> str:
 def root():
     return {"status": "Market AI Server Running"}
 
+@app.get("/health")
+def health():
+    """
+    Health check endpoint for Render / monitoring
+    """
+    return {
+        "status": "OK",
+        "service": "Market AI",
+        "version": "1.0.0"
+    }
+
 @app.get("/analyze")
 def analyze(symbol: str = "RELIANCE.NS"):
     df = yf.download(
