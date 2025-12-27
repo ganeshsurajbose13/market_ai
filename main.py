@@ -1,50 +1,38 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI
 import yfinance as yf
 import pandas as pd
 import numpy as np
 from ta.trend import EMAIndicator
-from scipy.stats import norm
+from ta.momentum import RSIIndicator
 
-app = FastAPI(title="Market AI – Stable Engine")
+app = FastAPI(title="Market AI Engine")
 
 # -----------------------------
-# Utility Functions
+# Utilities
 # -----------------------------
 
 def clean_df(df):
     df = df.copy()
     df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
-    for c in ["Open", "High", "Low", "Close", "Volume"]:
-        df[c] = pd.to_numeric(df[c], errors="coerce")
+    df = df[["Open", "High", "Low", "Close", "Volume"]]
     df.dropna(inplace=True)
     return df
 
-def calculate_vwap(df):
-    tp = (df["High"] + df["Low"] + df["Close"]) / 3
-    return (tp * df["Volume"]).cumsum() / df["Volume"].cumsum()
+def vwap(df):
+    price = (df["High"] + df["Low"] + df["Close"]) / 3
+    return (price * df["Volume"]).cumsum() / df["Volume"].cumsum()
 
-def ema_cross_signal(df):
-    ema5 = EMAIndicator(df["Close"], 5).ema_indicator()
-    ema10 = EMAIndicator(df["Close"], 10).ema_indicator()
-    ema20 = EMAIndicator(df["Close"], 20).ema_indicator()
-    ema50 = EMAIndicator(df["Close"], 50).ema_indicator()
+def ema(df, period):
+    return EMAIndicator(df["Close"], period).ema_indicator()
 
-    if ema5.iloc[-1] > ema10.iloc[-1] > ema20.iloc[-1] > ema50.iloc[-1]:
-        return "BULLISH"
-    elif ema5.iloc[-1] < ema10.iloc[-1] < ema20.iloc[-1] < ema50.iloc[-1]:
-        return "BEARISH"
-    else:
-        return "NEUTRAL"
-
-def probability_estimation(df):
-    returns = df["Close"].pct_change().dropna()
-    mean = returns.mean()
-    std = returns.std()
-    prob_up = 1 - norm.cdf(0, mean, std)
-    return round(prob_up * 100, 2)
+def ema_cross(df, short, long):
+    return (
+        df[f"EMA_{short}"].iloc[-2] < df[f"EMA_{long}"].iloc[-2]
+        and df[f"EMA_{short}"].iloc[-1] > df[f"EMA_{long}"].iloc[-1]
+    )
 
 # -----------------------------
-# API Endpoints
+# API
 # -----------------------------
 
 @app.get("/")
@@ -56,31 +44,45 @@ def health():
     return {"health": "OK"}
 
 @app.get("/analyze")
-def analyze(symbol: str = Query("RELIANCE.NS")):
+def analyze(symbol: str = "RELIANCE.NS"):
 
-    df = yf.download(
-        symbol,
-        period="6mo",
-        interval="1d",
-        progress=False
-    )
-
+    df = yf.download(symbol, period="6mo", interval="1d", progress=False)
     if df.empty:
-        return {"error": "No data found"}
+        return {"error": "No data"}
 
     df = clean_df(df)
 
-    df["VWAP"] = calculate_vwap(df)
-    signal = ema_cross_signal(df)
-    probability = probability_estimation(df)
+    # Indicators
+    df["EMA_5"] = ema(df, 5)
+    df["EMA_10"] = ema(df, 10)
+    df["EMA_20"] = ema(df, 20)
+    df["EMA_50"] = ema(df, 50)
+    df["RSI"] = RSIIndicator(df["Close"], 14).rsi()
+    df["VWAP"] = vwap(df)
 
     last = df.iloc[-1]
+
+    crosses = {
+        "EMA_5_10": ema_cross(df, 5, 10),
+        "EMA_10_20": ema_cross(df, 10, 20),
+        "EMA_20_50": ema_cross(df, 20, 50),
+    }
+
+    score = sum(crosses.values())
+    probability = round((score / 3) * 100, 2)
+
+    signal = (
+        "STRONG BUY" if probability >= 70 else
+        "BUY" if probability >= 50 else
+        "HOLD"
+    )
 
     return {
         "symbol": symbol,
         "price": round(float(last["Close"]), 2),
+        "RSI": round(float(last["RSI"]), 2),
         "VWAP": round(float(last["VWAP"]), 2),
-        "EMA_Cross": signal,
-        "Probability_Up_%": probability,
-        "Timeframe": "Daily (Prediction based)"
+        "EMA_Cross": crosses,
+        "Probability_%": probability,
+        "Signal": signal
     }
