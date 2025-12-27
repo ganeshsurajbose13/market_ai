@@ -5,10 +5,10 @@ import numpy as np
 from ta.trend import EMAIndicator
 import requests
 from io import StringIO
-import joblib  # For future ML model loading (LSTM, etc.)
+import joblib
 import os
 
-app = FastAPI(title="Market AI Engine – Stable v6 with ML placeholder")
+app = FastAPI(title="Market AI Engine – Stable v7 with Intraday Analysis")
 
 # -----------------------------
 # Fetch NSE + BSE stock list automatically
@@ -66,25 +66,19 @@ def ema_cross(df: pd.DataFrame, short: int, long: int) -> str:
     else:
         return "NO CROSS"
 
-# -----------------------------
-# Guppy EMA + SuperTrend
-# -----------------------------
 def guppy_ema(df: pd.DataFrame):
-    """Return short-term and long-term EMA averages"""
     short_emas = [EMAIndicator(df["Close"], span).ema_indicator() for span in [3,5,8,10,12,15]]
     long_emas  = [EMAIndicator(df["Close"], span).ema_indicator() for span in [30,35,40,45,50,60]]
     df["Guppy_Short"] = pd.concat(short_emas, axis=1).mean(axis=1)
     df["Guppy_Long"]  = pd.concat(long_emas, axis=1).mean(axis=1)
     if df["Guppy_Short"].iloc[-1] > df["Guppy_Long"].iloc[-1]:
-        trend = "BULLISH GMMA"
+        return "BULLISH GMMA"
     elif df["Guppy_Short"].iloc[-1] < df["Guppy_Long"].iloc[-1]:
-        trend = "BEARISH GMMA"
+        return "BEARISH GMMA"
     else:
-        trend = "NEUTRAL GMMA"
-    return trend
+        return "NEUTRAL GMMA"
 
 def supertrend(df: pd.DataFrame, period=7, multiplier=3):
-    """Compute SuperTrend and return latest trend"""
     hl2 = (df['High'] + df['Low']) / 2
     atr = df['High'].rolling(period).max() - df['Low'].rolling(period).min()
     upperband = hl2 + (multiplier * atr)
@@ -99,7 +93,7 @@ def supertrend(df: pd.DataFrame, period=7, multiplier=3):
 # -----------------------------
 # ML Placeholder
 # -----------------------------
-ML_MODEL_PATH = "ml_model.pkl"  # Placeholder file
+ML_MODEL_PATH = "ml_model.pkl"
 ml_model = None
 if os.path.exists(ML_MODEL_PATH):
     try:
@@ -111,14 +105,13 @@ else:
     print("No ML model found yet")
 
 def ml_predict(features: np.ndarray):
-    """Return probability prediction from ML model (placeholder)"""
     if ml_model is None:
         return {"prob_up": None, "prob_down": None, "note": "ML model not loaded"}
     probs = ml_model.predict_proba(features.reshape(1,-1))[0]
     return {"prob_up": round(float(probs[1]*100),2), "prob_down": round(float(probs[0]*100),2)}
 
 # -----------------------------
-# Analyze Timeframe
+# Analyze Timeframe (supports intraday)
 # -----------------------------
 def analyze_timeframe(symbol: str, interval: str, period: str) -> dict:
     df = yf.download(symbol, interval=interval, period=period, progress=False, auto_adjust=False)
@@ -160,9 +153,12 @@ def analyze(symbol: str = Query(..., description="Stock symbol like RELIANCE.NS"
     daily = analyze_timeframe(symbol, "1d", "6mo")
     weekly = analyze_timeframe(symbol, "1wk", "2y")
     monthly = analyze_timeframe(symbol, "1mo", "5y")
+    intraday_1h = analyze_timeframe(symbol, "60m", "60d")   # 1H intraday, last 60 days
+    intraday_4h = analyze_timeframe(symbol, "240m", "60d")  # 4H intraday, last 60 days
+
     if "error" in daily:
         return {"error": "Invalid symbol or no data"}
-    
+
     # SIMPLE DAILY PREDICTION LOGIC (SAFE)
     score = 0
     if daily["EMA_5"] > daily["EMA_10"]:
@@ -177,11 +173,11 @@ def analyze(symbol: str = Query(..., description="Stock symbol like RELIANCE.NS"
     elif score==0:
         signal="SELL"
     probability = round((score/3)*100,2)
-    
-    # Placeholder ML feature vector (currently using EMA_5, EMA_10, EMA_20)
+
+    # Placeholder ML feature vector
     features = np.array([daily["EMA_5"], daily["EMA_10"], daily["EMA_20"]])
     ml_prediction = ml_predict(features)
-    
+
     return {
         "symbol": symbol,
         "prediction_based_on": "DAILY",
@@ -191,7 +187,9 @@ def analyze(symbol: str = Query(..., description="Stock symbol like RELIANCE.NS"
         "analysis": {
             "Daily": daily,
             "Weekly": weekly,
-            "Monthly": monthly
+            "Monthly": monthly,
+            "Intraday_1H": intraday_1h,
+            "Intraday_4H": intraday_4h
         }
     }
 
