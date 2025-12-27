@@ -1,103 +1,87 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Market AI Stock Analyzer</title>
-<style>
-/* ... (same style code as above) ... */
-</style>
+  <meta charset="UTF-8">
+  <title>Market AI Engine – Frontend</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; background: #f4f4f9; }
+    h1 { color: #333; }
+    input, button { padding: 8px; margin: 5px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+    th { background: #eee; }
+    .error { color: red; }
+  </style>
 </head>
 <body>
+  <h1>Market AI Engine – Search Stock</h1>
+  <input type="text" id="symbol" placeholder="Enter stock symbol, e.g., RELIANCE.NS" />
+  <button onclick="fetchAnalysis()">Analyze</button>
 
-<h1>Market AI Stock Analyzer</h1>
+  <div id="result"></div>
 
-<div id="search-container">
-    <input type="text" id="symbol-input" placeholder="Enter Stock Symbol e.g. RELIANCE.NS">
-    <button onclick="fetchAnalysis()">Search</button>
-</div>
+  <script>
+    async function fetchAnalysis() {
+      const symbol = document.getElementById("symbol").value.toUpperCase();
+      const resultDiv = document.getElementById("result");
+      resultDiv.innerHTML = "Loading...";
 
-<div id="result-container">
-    <div id="signal-summary"></div>
-    <div id="tables-container"></div>
-</div>
-
-<script>
-async function fetchAnalysis() {
-    const symbol = document.getElementById('symbol-input').value.trim();
-    const tablesContainer = document.getElementById('tables-container');
-    const signalSummary = document.getElementById('signal-summary');
-
-    tablesContainer.innerHTML = '';
-    signalSummary.innerHTML = '';
-
-    if (!symbol) {
-        tablesContainer.innerHTML = '<div class="error">Please enter a stock symbol.</div>';
-        return;
-    }
-
-    tablesContainer.innerHTML = 'Fetching data...';
-
-    try {
-        // Replace with your Render deployment URL
-        const response = await fetch(`https://<your-render-app>.onrender.com/analyze?symbol=${symbol}`);
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      try {
+        const response = await fetch(`/analyze?symbol=${symbol}`);
         const data = await response.json();
 
         if (data.error) {
-            tablesContainer.innerHTML = `<div class="error">${data.error}</div>`;
-            return;
+          resultDiv.innerHTML = `<p class="error">${data.error}</p>`;
+          return;
         }
 
-        const signalClass = data.signal === 'BUY' ? 'signal-buy' : data.signal === 'SELL' ? 'signal-sell' : 'signal-hold';
-        signalSummary.innerHTML = `
-            <h2>Symbol: ${data.symbol}</h2>
-            <h3>Prediction: <span class="${signalClass}">${data.signal}</span> (${data.probability_%}%)</h3>
-        `;
+        let html = `<h2>Analysis for ${data.symbol}</h2>`;
+        html += `<p>Signal: <b>${data.signal}</b> | Probability: ${data.probability_%}%</p>`;
 
-        const timeframes = ['Daily', 'Weekly', 'Monthly', 'Intraday_1H', 'Intraday_4H'];
-        timeframes.forEach(tf => {
-            if (data.analysis[tf]) {
-                const tfData = data.analysis[tf];
-                if (tfData.error) {
-                    tablesContainer.innerHTML += `<p><strong>${tf}</strong>: ${tfData.error}</p>`;
-                    return;
-                }
+        html += `<table>
+          <tr>
+            <th>Timeframe</th>
+            <th>Price</th>
+            <th>VWAP</th>
+            <th>EMA_5</th>
+            <th>EMA_10</th>
+            <th>EMA_20</th>
+            <th>EMA_50</th>
+            <th>EMA 5-10 Cross</th>
+            <th>Guppy Trend</th>
+            <th>SuperTrend</th>
+          </tr>`;
 
-                let tableHTML = `<h3>${tf}</h3><table>`;
-                tableHTML += `<tr>
-                    <th>Price</th>
-                    <th>VWAP</th>
-                    <th>EMA_5</th>
-                    <th>EMA_10</th>
-                    <th>EMA_20</th>
-                    <th>EMA_50</th>
-                    <th>EMA_5_10_Cross</th>
-                    <th>Guppy Trend</th>
-                    <th>SuperTrend</th>
-                </tr>`;
+        for (const timeframe in data.analysis) {
+          const tf = data.analysis[timeframe];
+          if(tf.error){
+            html += `<tr>
+                      <td>${timeframe}</td>
+                      <td colspan="9">${tf.error}</td>
+                     </tr>`;
+          } else {
+            html += `<tr>
+                      <td>${timeframe}</td>
+                      <td>${tf.Price}</td>
+                      <td>${tf.VWAP}</td>
+                      <td>${tf.EMA_5}</td>
+                      <td>${tf.EMA_10}</td>
+                      <td>${tf.EMA_20}</td>
+                      <td>${tf.EMA_50}</td>
+                      <td>${tf.EMA_5_10_Cross}</td>
+                      <td>${tf.Guppy_Trend}</td>
+                      <td>${tf.SuperTrend}</td>
+                     </tr>`;
+          }
+        }
 
-                tableHTML += `<tr>
-                    <td>${tfData.Price}</td>
-                    <td>${tfData.VWAP}</td>
-                    <td>${tfData.EMA_5}</td>
-                    <td>${tfData.EMA_10}</td>
-                    <td>${tfData.EMA_20}</td>
-                    <td>${tfData.EMA_50}</td>
-                    <td>${tfData.EMA_5_10_Cross}</td>
-                    <td>${tfData.Guppy_Trend}</td>
-                    <td>${tfData.SuperTrend}</td>
-                </tr>`;
-                tableHTML += `</table>`;
+        html += "</table>";
+        resultDiv.innerHTML = html;
 
-                tablesContainer.innerHTML += tableHTML;
-            }
-        });
-
-    } catch (error) {
-        tablesContainer.innerHTML = `<div class="error">Error fetching data: ${error.message}</div>`;
+      } catch (error) {
+        resultDiv.innerHTML = `<p class="error">Error fetching data: ${error}</p>`;
+      }
     }
-}
-</script>
-
+  </script>
 </body>
 </html>
