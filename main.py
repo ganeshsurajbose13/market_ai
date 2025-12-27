@@ -1,15 +1,15 @@
 from fastapi import FastAPI, Query
+from fastapi.staticfiles import StaticFiles
 import yfinance as yf
 import pandas as pd
 import numpy as np
 from ta.trend import EMAIndicator
-from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(title="Market AI Engine – Stable v2 with Frontend")
 
-# -----------------------------
+# =====================================================
 # Utility Functions
-# -----------------------------
+# =====================================================
 
 def clean_df(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
@@ -34,27 +34,25 @@ def ema_cross(df: pd.DataFrame, short: int, long: int) -> str:
     else:
         return "NO CROSS"
 
-# -----------------------------
-# Guppy GMMA and SuperTrend placeholders
-# -----------------------------
+# =====================================================
+# Trend Indicators
+# =====================================================
+
 def guppy_trend(df: pd.DataFrame) -> str:
-    # Simplified GMMA logic for demonstration
     short_emas = [EMAIndicator(df["Close"], x).ema_indicator().iloc[-1] for x in [3,5,8,10,12,15]]
     long_emas = [EMAIndicator(df["Close"], x).ema_indicator().iloc[-1] for x in [30,35,40,45,50,60]]
-    if np.mean(short_emas) > np.mean(long_emas):
-        return "BULLISH GMMA"
-    else:
-        return "BEARISH GMMA"
+    return "BULLISH GMMA" if np.mean(short_emas) > np.mean(long_emas) else "BEARISH GMMA"
 
 def supertrend(df: pd.DataFrame) -> str:
-    # Placeholder: return NEUTRAL for simplicity
-    return "NEUTRAL"
+    return "NEUTRAL"   # placeholder
 
-# -----------------------------
-# Analyze function
-# -----------------------------
+# =====================================================
+# Core Analysis Logic
+# =====================================================
+
 def analyze_timeframe(symbol: str, interval: str, period: str) -> dict:
-    df = yf.download(symbol, interval=interval, period=period, progress=False, auto_adjust=False)
+    df = yf.download(symbol, interval=interval, period=period, progress=False)
+
     if df.empty:
         return {"error": "No data"}
 
@@ -67,41 +65,36 @@ def analyze_timeframe(symbol: str, interval: str, period: str) -> dict:
     df["VWAP"] = calculate_vwap(df)
 
     return {
-        "Price": round(float(df["Close"].iloc[-1]),2),
-        "VWAP": round(float(df["VWAP"].iloc[-1]),2),
-        "EMA_5": round(float(df["EMA_5"].iloc[-1]),2),
-        "EMA_10": round(float(df["EMA_10"].iloc[-1]),2),
-        "EMA_20": round(float(df["EMA_20"].iloc[-1]),2),
-        "EMA_50": round(float(df["EMA_50"].iloc[-1]),2),
-        "EMA_5_10_Cross": ema_cross(df,5,10),
+        "Price": round(float(df["Close"].iloc[-1]), 2),
+        "VWAP": round(float(df["VWAP"].iloc[-1]), 2),
+        "EMA_5": round(float(df["EMA_5"].iloc[-1]), 2),
+        "EMA_10": round(float(df["EMA_10"].iloc[-1]), 2),
+        "EMA_20": round(float(df["EMA_20"].iloc[-1]), 2),
+        "EMA_50": round(float(df["EMA_50"].iloc[-1]), 2),
+        "EMA_5_10_Cross": ema_cross(df, 5, 10),
         "Guppy_Trend": guppy_trend(df),
         "SuperTrend": supertrend(df)
     }
 
-# -----------------------------
-# API Endpoints
-# -----------------------------
-@app.get("/")
-def root():
-    return {"status": "Market AI Server Running"}
+# =====================================================
+# API ENDPOINTS
+# =====================================================
 
-@app.get("/health")
+@app.get("/api/health")
 def health():
     return {"status": "OK"}
 
 @app.get("/analyze")
 def analyze(symbol: str = Query(..., description="Stock symbol like RELIANCE.NS")):
-    # Multi-timeframe analysis
     daily = analyze_timeframe(symbol, "1d", "6mo")
     weekly = analyze_timeframe(symbol, "1wk", "2y")
     monthly = analyze_timeframe(symbol, "1mo", "5y")
     intraday_1h = analyze_timeframe(symbol, "60m", "7d")
-    intraday_4h = analyze_timeframe(symbol, "240m", "60d")  # may fail if no data
+    intraday_4h = analyze_timeframe(symbol, "240m", "60d")
 
     if "error" in daily:
         return {"error": "Invalid symbol or no data"}
 
-    # SIMPLE DAILY PREDICTION LOGIC
     score = 0
     if daily["EMA_5"] > daily["EMA_10"]:
         score += 1
@@ -110,23 +103,19 @@ def analyze(symbol: str = Query(..., description="Stock symbol like RELIANCE.NS"
     if daily["Price"] > daily["VWAP"]:
         score += 1
 
-    signal = "HOLD"
-    if score == 3:
-        signal = "BUY"
-    elif score == 0:
-        signal = "SELL"
-
-    probability = round((score/3)*100,2)
-
-    # ML placeholder
-    ml_prediction = {"prob_up": None, "prob_down": None, "note": "ML model not loaded"}
+    signal = "BUY" if score == 3 else "SELL" if score == 0 else "HOLD"
+    probability = round((score / 3) * 100, 2)
 
     return {
         "symbol": symbol,
         "prediction_based_on": "DAILY",
         "signal": signal,
         "probability_%": probability,
-        "ml_prediction": ml_prediction,
+        "ml_prediction": {
+            "prob_up": None,
+            "prob_down": None,
+            "note": "ML model not loaded"
+        },
         "analysis": {
             "Daily": daily,
             "Weekly": weekly,
@@ -136,7 +125,8 @@ def analyze(symbol: str = Query(..., description="Stock symbol like RELIANCE.NS"
         }
     }
 
-# -----------------------------
-# Serve frontend
-# -----------------------------
-app.mount("/", StaticFiles(directory=".", html=True), name="static")
+# =====================================================
+# SERVE FRONTEND (IMPORTANT)
+# =====================================================
+
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
