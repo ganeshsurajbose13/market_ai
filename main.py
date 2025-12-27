@@ -4,35 +4,47 @@ import pandas as pd
 import numpy as np
 from ta.trend import EMAIndicator
 import requests
+from io import StringIO
 
-app = FastAPI(title="Market AI Engine – Stable v3")
+app = FastAPI(title="Market AI Engine – Stable v4")
 
 # -----------------------------
-# Fetch NSE stock list automatically
+# Fetch NSE + BSE stock list automatically
 # -----------------------------
 def fetch_nse_stocks():
     """
-    Fetch all NSE stock symbols automatically
-    Returns a list of dicts: [{"symbol": "RELIANCE.NS", "name": "Reliance Industries"}, ...]
+    Fetch NSE stocks automatically
     """
     url = "https://www1.nseindia.com/content/equities/EQUITY_L.csv"
     try:
-        # NSE blocks direct requests sometimes; this is a workaround
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-        }
+        headers = {"User-Agent": "Mozilla/5.0"}
         response = requests.get(url, headers=headers)
-        df = pd.read_csv(pd.compat.StringIO(response.text))
+        df = pd.read_csv(StringIO(response.text))
         df = df[["SC_NAME", "SYMBOL"]]
-        df["SYMBOL"] = df["SYMBOL"] + ".NS"  # make it compatible with yfinance
-        symbols_list = [{"symbol": row["SYMBOL"], "name": row["SC_NAME"]} for _, row in df.iterrows()]
-        return symbols_list
+        df["SYMBOL"] = df["SYMBOL"].astype(str) + ".NS"  # yfinance NSE format
+        return [{"symbol": row["SYMBOL"], "name": row["SC_NAME"]} for _, row in df.iterrows()]
     except Exception as e:
         print("Error fetching NSE stocks:", e)
         return []
 
-# Load NSE stocks at startup
-stock_symbols = fetch_nse_stocks()
+def fetch_bse_stocks():
+    """
+    Fetch BSE stocks automatically
+    """
+    url = "https://www.bseindia.com/download/BhavCopy/Equity/EQ_ISINCODE.csv"
+    try:
+        headers = {"User-Agent": "Mozilla/5.0"}
+        response = requests.get(url, headers=headers)
+        df = pd.read_csv(StringIO(response.text))
+        df = df[["SC_NAME", "SC_CODE"]]
+        df["SYMBOL"] = df["SC_CODE"].astype(str) + ".BO"  # yfinance BSE format
+        return [{"symbol": row["SYMBOL"], "name": row["SC_NAME"]} for _, row in df.iterrows()]
+    except Exception as e:
+        print("Error fetching BSE stocks:", e)
+        return []
+
+# Load stocks at startup
+stock_symbols = fetch_nse_stocks() + fetch_bse_stocks()
 
 # -----------------------------
 # Utility Functions
@@ -110,7 +122,6 @@ def analyze(symbol: str = Query(..., description="Stock symbol like RELIANCE.NS"
     if "error" in daily:
         return {"error": "Invalid symbol or no data"}
 
-    # SIMPLE DAILY PREDICTION LOGIC
     score = 0
     if daily["EMA_5"] > daily["EMA_10"]:
         score += 1
@@ -146,4 +157,4 @@ def analyze(symbol: str = Query(..., description="Stock symbol like RELIANCE.NS"
 def search(q: str = Query(..., description="Enter stock symbol or name")):
     q_lower = q.lower()
     results = [s for s in stock_symbols if q_lower in s["symbol"].lower() or q_lower in s["name"].lower()]
-    return {"query": q, "results": results[:20]}  # return top 20 matches
+    return {"query": q, "results": results[:30]}  # top 30 matches
