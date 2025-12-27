@@ -3,121 +3,78 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from ta.trend import EMAIndicator
+from ta.momentum import RSIIndicator
 
-app = FastAPI(title="Market AI Engine", version="1.0")
+app = FastAPI(title="Market AI Engine – Stable")
 
-# --------------------------------------------------
+# -----------------------------
 # Utility Functions
-# --------------------------------------------------
+# -----------------------------
 
-def clean_df(df: pd.DataFrame) -> pd.DataFrame:
+def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
+    df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
+    df = df[["Open", "High", "Low", "Close", "Volume"]]
+    df = df.apply(pd.to_numeric, errors="coerce")
     df.dropna(inplace=True)
     return df
 
-def add_ema(df: pd.DataFrame):
-    df["EMA_5"] = EMAIndicator(df["Close"], window=5).ema_indicator()
-    df["EMA_10"] = EMAIndicator(df["Close"], window=10).ema_indicator()
-    df["EMA_20"] = EMAIndicator(df["Close"], window=20).ema_indicator()
-    return df
+def ema_cross_signal(df: pd.DataFrame):
+    ema5 = EMAIndicator(df["Close"], window=5).ema_indicator()
+    ema10 = EMAIndicator(df["Close"], window=10).ema_indicator()
+    ema20 = EMAIndicator(df["Close"], window=20).ema_indicator()
 
-def ema_crossover_signal(df: pd.DataFrame) -> str:
-    prev = df.iloc[-2]
-    last = df.iloc[-1]
-
-    if prev["EMA_5"] < prev["EMA_10"] and last["EMA_5"] > last["EMA_10"]:
+    if ema5.iloc[-2] < ema10.iloc[-2] and ema5.iloc[-1] > ema10.iloc[-1]:
         return "BULLISH CROSS"
-    elif prev["EMA_5"] > prev["EMA_10"] and last["EMA_5"] < last["EMA_10"]:
+    elif ema5.iloc[-2] > ema10.iloc[-2] and ema5.iloc[-1] < ema10.iloc[-1]:
         return "BEARISH CROSS"
-    return "NO CROSS"
+    else:
+        return "NO CROSS"
 
-def probability_prediction(df: pd.DataFrame) -> float:
-    """
-    Simple statistical probability:
-    % of last 20 candles closing above EMA 20
-    """
-    recent = df.tail(20)
-    wins = (recent["Close"] > recent["EMA_20"]).sum()
-    probability = (wins / 20) * 100
-    return round(probability, 2)
+def probability_score(rsi, ema_signal):
+    score = 0
+    if 50 < rsi < 70:
+        score += 50
+    if ema_signal == "BULLISH CROSS":
+        score += 30
+    return min(score, 90)
 
-# --------------------------------------------------
-# Health Check (Render needs this)
-# --------------------------------------------------
-
-@app.get("/health")
-def health():
-    return {"status": "OK"}
-
-# --------------------------------------------------
-# Root
-# --------------------------------------------------
+# -----------------------------
+# API Endpoints
+# -----------------------------
 
 @app.get("/")
 def root():
     return {"status": "Market AI Server Running"}
 
-# --------------------------------------------------
-# MAIN ANALYSIS ENDPOINT
-# --------------------------------------------------
+@app.get("/health")
+def health():
+    return {"status": "healthy"}
 
 @app.get("/analyze")
-def analyze_stock(
-    symbol: str = Query("RELIANCE.NS", description="Stock symbol"),
-):
-    """
-    Uses multiple timeframes
-    Prediction is based ONLY on Daily chart
-    """
+def analyze(symbol: str = Query("RELIANCE.NS")):
+    df = yf.download(
+        symbol,
+        period="6mo",
+        interval="1d",
+        progress=False
+    )
 
-    timeframes = {
-        "1h": ("7d", "1h"),
-        "4h": ("60d", "4h"),
-        "1d": ("6mo", "1d"),
-        "1wk": ("2y", "1wk"),
-        "1mo": ("5y", "1mo"),
-    }
+    if df.empty:
+        return {"error": "No data found"}
 
-    results = {}
+    df = clean_dataframe(df)
 
-    for tf, (period, interval) in timeframes.items():
-        df = yf.download(
-            symbol,
-            period=period,
-            interval=interval,
-            progress=False
-        )
+    df["RSI"] = RSIIndicator(df["Close"], window=14).rsi()
+    ema_signal = ema_cross_signal(df)
+    last = df.iloc[-1]
 
-        if df.empty:
-            results[tf] = "NO DATA"
-            continue
-
-        df = clean_df(df)
-        df = add_ema(df)
-
-        signal = ema_crossover_signal(df)
-        trend = "UPTREND" if df["Close"].iloc[-1] > df["EMA_20"].iloc[-1] else "DOWNTREND"
-
-        results[tf] = {
-            "price": round(float(df["Close"].iloc[-1]), 2),
-            "ema_5": round(float(df["EMA_5"].iloc[-1]), 2),
-            "ema_10": round(float(df["EMA_10"].iloc[-1]), 2),
-            "ema_20": round(float(df["EMA_20"].iloc[-1]), 2),
-            "trend": trend,
-            "ema_cross": signal,
-        }
-
-        # Prediction ONLY on daily
-        if tf == "1d":
-            prob = probability_prediction(df)
-            results[tf]["prediction_probability"] = f"{prob}%"
-            results[tf]["prediction"] = (
-                "HIGH PROBABILITY BUY" if prob > 65 else
-                "NEUTRAL" if prob > 45 else
-                "HIGH RISK"
-            )
+    probability = probability_score(last["RSI"], ema_signal)
 
     return {
         "symbol": symbol,
-        "analysis": results
+        "price": round(float(last["Close"]), 2),
+        "RSI": round(float(last["RSI"]), 2),
+        "EMA_Cross": ema_signal,
+        "Prediction_Probability_%": probability
     }
