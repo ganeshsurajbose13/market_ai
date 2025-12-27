@@ -4,5 +4,6 @@ yfinance
 pandas
 numpy
 ta
+requests
 scipy
 scikit-learn

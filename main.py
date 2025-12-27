@@ -3,13 +3,40 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from ta.trend import EMAIndicator
+import requests
 
-app = FastAPI(title="Market AI Engine – Stable v1")
+app = FastAPI(title="Market AI Engine – Stable v3")
+
+# -----------------------------
+# Fetch NSE stock list automatically
+# -----------------------------
+def fetch_nse_stocks():
+    """
+    Fetch all NSE stock symbols automatically
+    Returns a list of dicts: [{"symbol": "RELIANCE.NS", "name": "Reliance Industries"}, ...]
+    """
+    url = "https://www1.nseindia.com/content/equities/EQUITY_L.csv"
+    try:
+        # NSE blocks direct requests sometimes; this is a workaround
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+        }
+        response = requests.get(url, headers=headers)
+        df = pd.read_csv(pd.compat.StringIO(response.text))
+        df = df[["SC_NAME", "SYMBOL"]]
+        df["SYMBOL"] = df["SYMBOL"] + ".NS"  # make it compatible with yfinance
+        symbols_list = [{"symbol": row["SYMBOL"], "name": row["SC_NAME"]} for _, row in df.iterrows()]
+        return symbols_list
+    except Exception as e:
+        print("Error fetching NSE stocks:", e)
+        return []
+
+# Load NSE stocks at startup
+stock_symbols = fetch_nse_stocks()
 
 # -----------------------------
 # Utility Functions
 # -----------------------------
-
 def clean_df(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
@@ -18,23 +45,19 @@ def clean_df(df: pd.DataFrame) -> pd.DataFrame:
     df.dropna(inplace=True)
     return df
 
-
 def calculate_vwap(df: pd.DataFrame) -> pd.Series:
     typical_price = (df["High"] + df["Low"] + df["Close"]) / 3
     return (typical_price * df["Volume"]).cumsum() / df["Volume"].cumsum()
 
-
 def ema_cross(df: pd.DataFrame, short: int, long: int) -> str:
     ema_short = EMAIndicator(df["Close"], short).ema_indicator()
     ema_long = EMAIndicator(df["Close"], long).ema_indicator()
-
     if ema_short.iloc[-2] < ema_long.iloc[-2] and ema_short.iloc[-1] > ema_long.iloc[-1]:
         return "BULLISH CROSS"
     elif ema_short.iloc[-2] > ema_long.iloc[-2] and ema_short.iloc[-1] < ema_long.iloc[-1]:
         return "BEARISH CROSS"
     else:
         return "NO CROSS"
-
 
 def analyze_timeframe(symbol: str, interval: str, period: str) -> dict:
     df = yf.download(
@@ -69,16 +92,13 @@ def analyze_timeframe(symbol: str, interval: str, period: str) -> dict:
 # -----------------------------
 # API Endpoints
 # -----------------------------
-
 @app.get("/")
 def root():
     return {"status": "Market AI Server Running"}
 
-
 @app.get("/health")
 def health():
     return {"status": "OK"}
-
 
 @app.get("/analyze")
 def analyze(symbol: str = Query(..., description="Stock symbol like RELIANCE.NS")):
@@ -90,9 +110,8 @@ def analyze(symbol: str = Query(..., description="Stock symbol like RELIANCE.NS"
     if "error" in daily:
         return {"error": "Invalid symbol or no data"}
 
-    # SIMPLE DAILY PREDICTION LOGIC (SAFE)
+    # SIMPLE DAILY PREDICTION LOGIC
     score = 0
-
     if daily["EMA_5"] > daily["EMA_10"]:
         score += 1
     if daily["EMA_10"] > daily["EMA_20"]:
@@ -119,3 +138,12 @@ def analyze(symbol: str = Query(..., description="Stock symbol like RELIANCE.NS"
             "Monthly": monthly
         }
     }
+
+# -----------------------------
+# Search Endpoint
+# -----------------------------
+@app.get("/search")
+def search(q: str = Query(..., description="Enter stock symbol or name")):
+    q_lower = q.lower()
+    results = [s for s in stock_symbols if q_lower in s["symbol"].lower() or q_lower in s["name"].lower()]
+    return {"query": q, "results": results[:20]}  # return top 20 matches
