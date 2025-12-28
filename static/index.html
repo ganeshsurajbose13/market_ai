@@ -1,55 +1,64 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Market AI Engine</title>
+    <title>Market AI</title>
     <style>
-        body { font-family: Arial; padding: 20px; }
-        input, button { padding: 10px; font-size: 16px; }
-        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-        th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+        body { font-family: Arial; padding: 30px; }
+        input, button { padding: 8px; font-size: 16px; }
+        table { border-collapse: collapse; margin-top: 20px; width: 100%; }
+        td, th { border: 1px solid #ccc; padding: 8px; }
         th { background: #f4f4f4; }
     </style>
 </head>
 <body>
 
-<h2>📊 Market AI Engine</h2>
+<h2>📈 Market AI Search</h2>
 
-<input id="symbol" placeholder="RELIANCE.NS" />
+<input id="symbol" placeholder="Enter stock (e.g. BHEL.NS)">
 <button onclick="analyze()">Analyze</button>
 
 <div id="result"></div>
 
 <script>
 async function analyze() {
-    const symbol = document.getElementById("symbol").value;
-    document.getElementById("result").innerHTML = "Loading...";
-
-    const res = await fetch(`/analyze?symbol=${symbol}`);
-    const data = await res.json();
-
-    if (data.error) {
-        document.getElementById("result").innerHTML = data.error;
+    const sym = document.getElementById("symbol").value.trim();
+    if (!sym) {
+        alert("Enter stock symbol");
         return;
     }
 
-    let html = `<h3>Signal: ${data.signal} (${data.probability_%}%)</h3>`;
-    html += "<table><tr><th>Timeframe</th><th>Price</th><th>VWAP</th><th>EMA5</th><th>EMA10</th><th>Trend</th></tr>";
+    document.getElementById("result").innerHTML = "Loading...";
 
-    for (let tf in data.analysis) {
-        const d = data.analysis[tf];
-        if (d.error) continue;
-        html += `<tr>
-            <td>${tf}</td>
-            <td>${d.Price}</td>
-            <td>${d.VWAP}</td>
-            <td>${d.EMA_5}</td>
-            <td>${d.EMA_10}</td>
-            <td>${d.Guppy_Trend}</td>
-        </tr>`;
+    try {
+        const res = await fetch(`/analyze?symbol=${sym}`);
+        const data = await res.json();
+
+        if (data.error) {
+            document.getElementById("result").innerHTML = data.error;
+            return;
+        }
+
+        let html = `<h3>${data.symbol} — ${data.signal} (${data.probability}%)</h3>`;
+        html += "<table><tr><th>Timeframe</th><th>Price</th><th>VWAP</th><th>EMA 5</th><th>EMA 10</th><th>EMA 20</th></tr>";
+
+        for (let tf in data.analysis) {
+            let d = data.analysis[tf];
+            html += `<tr>
+                <td>${tf}</td>
+                <td>${d.Price}</td>
+                <td>${d.VWAP}</td>
+                <td>${d.EMA_5}</td>
+                <td>${d.EMA_10}</td>
+                <td>${d.EMA_20}</td>
+            </tr>`;
+        }
+
+        html += "</table>";
+        document.getElementById("result").innerHTML = html;
+
+    } catch (e) {
+        document.getElementById("result").innerHTML = "Error fetching data";
     }
-
-    html += "</table>";
-    document.getElementById("result").innerHTML = html;
 }
 </script>
 

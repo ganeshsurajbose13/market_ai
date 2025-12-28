@@ -5,13 +5,13 @@ import pandas as pd
 import numpy as np
 from ta.trend import EMAIndicator
 
-app = FastAPI(title="Market AI Engine – Stable v2 with Frontend")
+app = FastAPI(title="Market AI Engine – Stable v2")
 
-# =====================================================
+# -----------------------------
 # Utility Functions
-# =====================================================
+# -----------------------------
 
-def clean_df(df: pd.DataFrame) -> pd.DataFrame:
+def clean_df(df):
     df = df.copy()
     df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
     df = df[["Open", "High", "Low", "Close", "Volume"]]
@@ -19,40 +19,21 @@ def clean_df(df: pd.DataFrame) -> pd.DataFrame:
     df.dropna(inplace=True)
     return df
 
-def calculate_vwap(df: pd.DataFrame) -> pd.Series:
-    typical_price = (df["High"] + df["Low"] + df["Close"]) / 3
-    return (typical_price * df["Volume"]).cumsum() / df["Volume"].cumsum()
+def calculate_vwap(df):
+    tp = (df["High"] + df["Low"] + df["Close"]) / 3
+    return (tp * df["Volume"]).cumsum() / df["Volume"].cumsum()
 
-def ema_cross(df: pd.DataFrame, short: int, long: int) -> str:
-    ema_short = EMAIndicator(df["Close"], short).ema_indicator()
-    ema_long = EMAIndicator(df["Close"], long).ema_indicator()
+def ema_cross(df, s, l):
+    e1 = EMAIndicator(df["Close"], s).ema_indicator()
+    e2 = EMAIndicator(df["Close"], l).ema_indicator()
+    if e1.iloc[-2] < e2.iloc[-2] and e1.iloc[-1] > e2.iloc[-1]:
+        return "BULLISH"
+    if e1.iloc[-2] > e2.iloc[-2] and e1.iloc[-1] < e2.iloc[-1]:
+        return "BEARISH"
+    return "NO CROSS"
 
-    if ema_short.iloc[-2] < ema_long.iloc[-2] and ema_short.iloc[-1] > ema_long.iloc[-1]:
-        return "BULLISH CROSS"
-    elif ema_short.iloc[-2] > ema_long.iloc[-2] and ema_short.iloc[-1] < ema_long.iloc[-1]:
-        return "BEARISH CROSS"
-    else:
-        return "NO CROSS"
-
-# =====================================================
-# Trend Indicators
-# =====================================================
-
-def guppy_trend(df: pd.DataFrame) -> str:
-    short_emas = [EMAIndicator(df["Close"], x).ema_indicator().iloc[-1] for x in [3,5,8,10,12,15]]
-    long_emas = [EMAIndicator(df["Close"], x).ema_indicator().iloc[-1] for x in [30,35,40,45,50,60]]
-    return "BULLISH GMMA" if np.mean(short_emas) > np.mean(long_emas) else "BEARISH GMMA"
-
-def supertrend(df: pd.DataFrame) -> str:
-    return "NEUTRAL"   # placeholder
-
-# =====================================================
-# Core Analysis Logic
-# =====================================================
-
-def analyze_timeframe(symbol: str, interval: str, period: str) -> dict:
+def analyze_tf(symbol, interval, period):
     df = yf.download(symbol, interval=interval, period=period, progress=False)
-
     if df.empty:
         return {"error": "No data"}
 
@@ -61,7 +42,6 @@ def analyze_timeframe(symbol: str, interval: str, period: str) -> dict:
     df["EMA_5"] = EMAIndicator(df["Close"], 5).ema_indicator()
     df["EMA_10"] = EMAIndicator(df["Close"], 10).ema_indicator()
     df["EMA_20"] = EMAIndicator(df["Close"], 20).ema_indicator()
-    df["EMA_50"] = EMAIndicator(df["Close"], 50).ema_indicator()
     df["VWAP"] = calculate_vwap(df)
 
     return {
@@ -70,30 +50,21 @@ def analyze_timeframe(symbol: str, interval: str, period: str) -> dict:
         "EMA_5": round(float(df["EMA_5"].iloc[-1]), 2),
         "EMA_10": round(float(df["EMA_10"].iloc[-1]), 2),
         "EMA_20": round(float(df["EMA_20"].iloc[-1]), 2),
-        "EMA_50": round(float(df["EMA_50"].iloc[-1]), 2),
-        "EMA_5_10_Cross": ema_cross(df, 5, 10),
-        "Guppy_Trend": guppy_trend(df),
-        "SuperTrend": supertrend(df)
+        "EMA_Cross": ema_cross(df, 5, 10)
     }
 
-# =====================================================
-# API ENDPOINTS
-# =====================================================
-
-@app.get("/api/health")
-def health():
-    return {"status": "OK"}
+# -----------------------------
+# API
+# -----------------------------
 
 @app.get("/analyze")
-def analyze(symbol: str = Query(..., description="Stock symbol like RELIANCE.NS")):
-    daily = analyze_timeframe(symbol, "1d", "6mo")
-    weekly = analyze_timeframe(symbol, "1wk", "2y")
-    monthly = analyze_timeframe(symbol, "1mo", "5y")
-    intraday_1h = analyze_timeframe(symbol, "60m", "7d")
-    intraday_4h = analyze_timeframe(symbol, "240m", "60d")
+def analyze(symbol: str = Query(...)):
+    daily = analyze_tf(symbol, "1d", "6mo")
+    weekly = analyze_tf(symbol, "1wk", "2y")
+    monthly = analyze_tf(symbol, "1mo", "5y")
 
     if "error" in daily:
-        return {"error": "Invalid symbol or no data"}
+        return {"error": "Invalid symbol"}
 
     score = 0
     if daily["EMA_5"] > daily["EMA_10"]:
@@ -104,29 +75,19 @@ def analyze(symbol: str = Query(..., description="Stock symbol like RELIANCE.NS"
         score += 1
 
     signal = "BUY" if score == 3 else "SELL" if score == 0 else "HOLD"
-    probability = round((score / 3) * 100, 2)
 
     return {
-        "symbol": symbol,
-        "prediction_based_on": "DAILY",
+        "symbol": symbol.upper(),
         "signal": signal,
-        "probability_%": probability,
-        "ml_prediction": {
-            "prob_up": None,
-            "prob_down": None,
-            "note": "ML model not loaded"
-        },
+        "probability": round(score / 3 * 100, 2),
         "analysis": {
             "Daily": daily,
             "Weekly": weekly,
-            "Monthly": monthly,
-            "Intraday_1H": intraday_1h,
-            "Intraday_4H": intraday_4h
+            "Monthly": monthly
         }
     }
 
-# =====================================================
-# SERVE FRONTEND (IMPORTANT)
-# =====================================================
-
+# -----------------------------
+# FRONTEND
+# -----------------------------
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
