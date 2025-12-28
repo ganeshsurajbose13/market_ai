@@ -6,68 +6,121 @@ import pandas as pd
 import numpy as np
 from ta.trend import EMAIndicator
 
-app = FastAPI()
+app = FastAPI(title="Market AI – Adaptive EMA Learning Engine")
 
-# -------------------- CORS --------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# -------------------- HELPERS --------------------
-def calculate_ema(series, period):
-    return EMAIndicator(series, period).ema_indicator().iloc[-1]
+# ---------------- UTILITIES ----------------
+def ema(series, p):
+    return EMAIndicator(series, p).ema_indicator()
 
-def calculate_vwap(df):
-    return (df["Volume"] * df["Close"]).sum() / df["Volume"].sum()
+def clean(df):
+    df = df[["Open","High","Low","Close","Volume"]]
+    df.dropna(inplace=True)
+    return df
 
-def guppy_trend(close):
-    short_emas = [3, 5, 8, 10, 12, 15]
-    long_emas = [30, 35, 40, 45, 50, 60]
+# ---------------- LEARNING ENGINE ----------------
+def ema_learning_score(df):
+    score = 0
+    success = 0
+    total = 0
 
-    short_avg = np.mean([calculate_ema(close, p) for p in short_emas])
-    long_avg = np.mean([calculate_ema(close, p) for p in long_emas])
+    e5 = ema(df["Close"],5)
+    e10 = ema(df["Close"],10)
 
-    if short_avg > long_avg:
-        return "BULLISH GMMA"
-    elif short_avg < long_avg:
-        return "BEARISH GMMA"
+    for i in range(-50, -1):
+        if e5.iloc[i-1] < e10.iloc[i-1] and e5.iloc[i] > e10.iloc[i]:
+            total += 1
+            if df["Close"].iloc[i+3] > df["Close"].iloc[i]:
+                success += 1
+
+        if e5.iloc[i-1] > e10.iloc[i-1] and e5.iloc[i] < e10.iloc[i]:
+            total += 1
+            if df["Close"].iloc[i+3] < df["Close"].iloc[i]:
+                success += 1
+
+    confidence = round((success / total) * 100, 2) if total > 0 else 50
+    return confidence
+
+# ---------------- TREND IDENTIFIER ----------------
+def trend_engine(df):
+    close = df["Close"]
+
+    e5 = ema(close,5)
+    e10 = ema(close,10)
+    e20 = ema(close,20)
+    e50 = ema(close,50)
+
+    price = round(float(close.iloc[-1]),2)
+
+    trend_points = 0
+
+    if e5.iloc[-1] > e10.iloc[-1]:
+        trend_points += 1
+    if e10.iloc[-1] > e20.iloc[-1]:
+        trend_points += 1
+    if e20.iloc[-1] > e50.iloc[-1]:
+        trend_points += 1
+
+    if e5.iloc[-1] < e10.iloc[-1]:
+        trend_points -= 1
+    if e10.iloc[-1] < e20.iloc[-1]:
+        trend_points -= 1
+    if e20.iloc[-1] < e50.iloc[-1]:
+        trend_points -= 1
+
+    confidence = ema_learning_score(df)
+
+    if trend_points >= 3:
+        signal = "BUY"
+    elif trend_points <= -3:
+        signal = "SELL"
     else:
-        return "NEUTRAL"
+        signal = "HOLD"
 
+    strength = abs(trend_points) * 33.33
+
+    return {
+        "Price": price,
+        "EMA_5": round(float(e5.iloc[-1]),2),
+        "EMA_10": round(float(e10.iloc[-1]),2),
+        "EMA_20": round(float(e20.iloc[-1]),2),
+        "EMA_50": round(float(e50.iloc[-1]),2),
+        "Trend_Points": trend_points,
+        "Trend_Strength_%": round(strength,2),
+        "Learning_Confidence_%": confidence,
+        "Signal": signal
+    }
+
+# ---------------- ANALYSIS ----------------
 def analyze(symbol, period, interval):
     df = yf.download(symbol, period=period, interval=interval, progress=False)
 
     if df.empty or len(df) < 60:
         return {"error": "No data"}
 
-    close = df["Close"]
+    df = clean(df)
+    return trend_engine(df)
 
-    return {
-        "Price": round(close.iloc[-1], 2),
-        "VWAP": round(calculate_vwap(df), 2),
-        "EMA_5": round(calculate_ema(close, 5), 2),
-        "EMA_10": round(calculate_ema(close, 10), 2),
-        "EMA_20": round(calculate_ema(close, 20), 2),
-        "Guppy_Trend": guppy_trend(close)
-    }
-
-# -------------------- API --------------------
+# ---------------- API ----------------
 @app.get("/analyze")
-def full_analysis(symbol: str):
+def analyze_stock(symbol: str):
     return {
         "symbol": symbol,
+        "strategy": "Adaptive EMA Learning Engine",
         "analysis": {
-            "Daily": analyze(symbol, "6mo", "1d"),
-            "Weekly": analyze(symbol, "1y", "1wk"),
-            "Monthly": analyze(symbol, "5y", "1mo"),
-            "Intraday_75m": analyze(symbol, "60d", "75m"),
-            "Intraday_4H": analyze(symbol, "60d", "4h"),
+            "Daily": analyze(symbol,"6mo","1d"),
+            "Weekly": analyze(symbol,"2y","1wk"),
+            "Monthly": analyze(symbol,"5y","1mo"),
+            "Intraday_75m": analyze(symbol,"60d","75m"),
+            "Intraday_4H": analyze(symbol,"60d","240m")
         }
     }
 
-# -------------------- FRONTEND --------------------
+# ---------------- FRONTEND ----------------
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
