@@ -1,93 +1,73 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import yfinance as yf
 import pandas as pd
 import numpy as np
 from ta.trend import EMAIndicator
 
-app = FastAPI(title="Market AI Engine – Stable v2")
+app = FastAPI()
 
-# -----------------------------
-# Utility Functions
-# -----------------------------
+# -------------------- CORS --------------------
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-def clean_df(df):
-    df = df.copy()
-    df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
-    df = df[["Open", "High", "Low", "Close", "Volume"]]
-    df = df.apply(pd.to_numeric, errors="coerce")
-    df.dropna(inplace=True)
-    return df
+# -------------------- HELPERS --------------------
+def calculate_ema(series, period):
+    return EMAIndicator(series, period).ema_indicator().iloc[-1]
 
 def calculate_vwap(df):
-    tp = (df["High"] + df["Low"] + df["Close"]) / 3
-    return (tp * df["Volume"]).cumsum() / df["Volume"].cumsum()
+    return (df["Volume"] * df["Close"]).sum() / df["Volume"].sum()
 
-def ema_cross(df, s, l):
-    e1 = EMAIndicator(df["Close"], s).ema_indicator()
-    e2 = EMAIndicator(df["Close"], l).ema_indicator()
-    if e1.iloc[-2] < e2.iloc[-2] and e1.iloc[-1] > e2.iloc[-1]:
-        return "BULLISH"
-    if e1.iloc[-2] > e2.iloc[-2] and e1.iloc[-1] < e2.iloc[-1]:
-        return "BEARISH"
-    return "NO CROSS"
+def guppy_trend(close):
+    short_emas = [3, 5, 8, 10, 12, 15]
+    long_emas = [30, 35, 40, 45, 50, 60]
 
-def analyze_tf(symbol, interval, period):
-    df = yf.download(symbol, interval=interval, period=period, progress=False)
-    if df.empty:
+    short_avg = np.mean([calculate_ema(close, p) for p in short_emas])
+    long_avg = np.mean([calculate_ema(close, p) for p in long_emas])
+
+    if short_avg > long_avg:
+        return "BULLISH GMMA"
+    elif short_avg < long_avg:
+        return "BEARISH GMMA"
+    else:
+        return "NEUTRAL"
+
+def analyze(symbol, period, interval):
+    df = yf.download(symbol, period=period, interval=interval, progress=False)
+
+    if df.empty or len(df) < 60:
         return {"error": "No data"}
 
-    df = clean_df(df)
-
-    df["EMA_5"] = EMAIndicator(df["Close"], 5).ema_indicator()
-    df["EMA_10"] = EMAIndicator(df["Close"], 10).ema_indicator()
-    df["EMA_20"] = EMAIndicator(df["Close"], 20).ema_indicator()
-    df["VWAP"] = calculate_vwap(df)
+    close = df["Close"]
 
     return {
-        "Price": round(float(df["Close"].iloc[-1]), 2),
-        "VWAP": round(float(df["VWAP"].iloc[-1]), 2),
-        "EMA_5": round(float(df["EMA_5"].iloc[-1]), 2),
-        "EMA_10": round(float(df["EMA_10"].iloc[-1]), 2),
-        "EMA_20": round(float(df["EMA_20"].iloc[-1]), 2),
-        "EMA_Cross": ema_cross(df, 5, 10)
+        "Price": round(close.iloc[-1], 2),
+        "VWAP": round(calculate_vwap(df), 2),
+        "EMA_5": round(calculate_ema(close, 5), 2),
+        "EMA_10": round(calculate_ema(close, 10), 2),
+        "EMA_20": round(calculate_ema(close, 20), 2),
+        "Guppy_Trend": guppy_trend(close)
     }
 
-# -----------------------------
-# API
-# -----------------------------
-
+# -------------------- API --------------------
 @app.get("/analyze")
-def analyze(symbol: str = Query(...)):
-    daily = analyze_tf(symbol, "1d", "6mo")
-    weekly = analyze_tf(symbol, "1wk", "2y")
-    monthly = analyze_tf(symbol, "1mo", "5y")
-
-    if "error" in daily:
-        return {"error": "Invalid symbol"}
-
-    score = 0
-    if daily["EMA_5"] > daily["EMA_10"]:
-        score += 1
-    if daily["EMA_10"] > daily["EMA_20"]:
-        score += 1
-    if daily["Price"] > daily["VWAP"]:
-        score += 1
-
-    signal = "BUY" if score == 3 else "SELL" if score == 0 else "HOLD"
-
+def full_analysis(symbol: str):
     return {
-        "symbol": symbol.upper(),
-        "signal": signal,
-        "probability": round(score / 3 * 100, 2),
+        "symbol": symbol,
         "analysis": {
-            "Daily": daily,
-            "Weekly": weekly,
-            "Monthly": monthly
+            "Daily": analyze(symbol, "6mo", "1d"),
+            "Weekly": analyze(symbol, "1y", "1wk"),
+            "Monthly": analyze(symbol, "5y", "1mo"),
+            "Intraday_75m": analyze(symbol, "60d", "75m"),
+            "Intraday_4H": analyze(symbol, "60d", "4h"),
         }
     }
 
-# -----------------------------
-# FRONTEND
-# -----------------------------
+# -------------------- FRONTEND --------------------
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
