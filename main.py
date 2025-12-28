@@ -1,103 +1,126 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from ta.trend import EMAIndicator
 
-app = FastAPI(title="Market AI Engine – Stable v3")
+app = FastAPI(title="Market AI")
 
 # -----------------------------
 # Utility Functions
 # -----------------------------
 
-def clean_df(df):
-    df = df.copy()
-    df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
-    df = df[["Open", "High", "Low", "Close", "Volume"]]
-    df = df.apply(pd.to_numeric, errors="coerce")
+def ema(series, period):
+    return series.ewm(span=period, adjust=False).mean()
+
+def guppy_ema(df):
+    short = [3,5,8,10,12,15]
+    long = [30,35,40,45,50,60]
+
+    for p in short:
+        df[f"EMA_S_{p}"] = ema(df["Close"], p)
+
+    for p in long:
+        df[f"EMA_L_{p}"] = ema(df["Close"], p)
+
+    return df
+
+def identify_trend(df):
+    if df.empty or len(df) < 60:
+        return "NO DATA"
+
+    last = df.iloc[-1]
+
+    short_avg = np.mean([last[f"EMA_S_{p}"] for p in [3,5,8,10,12,15]])
+    long_avg  = np.mean([last[f"EMA_L_{p}"] for p in [30,35,40,45,50,60]])
+
+    if short_avg > long_avg:
+        return "UPTREND"
+    elif short_avg < long_avg:
+        return "DOWNTREND"
+    else:
+        return "SIDEWAYS"
+
+def dow_confirmation(df):
+    hh = df["High"].rolling(20).max()
+    ll = df["Low"].rolling(20).min()
+
+    if df["Close"].iloc[-1] > hh.iloc[-2]:
+        return "Higher High (Bullish)"
+    elif df["Close"].iloc[-1] < ll.iloc[-2]:
+        return "Lower Low (Bearish)"
+    else:
+        return "Range"
+
+def fetch_data(symbol, interval, period):
+    df = yf.download(symbol, interval=interval, period=period, progress=False)
     df.dropna(inplace=True)
     return df
 
-def calculate_vwap(df):
-    tp = (df["High"] + df["Low"] + df["Close"]) / 3
-    return (tp * df["Volume"]).cumsum() / df["Volume"].cumsum()
-
-def ema_cross(df, s, l):
-    e1 = EMAIndicator(df["Close"], s).ema_indicator()
-    e2 = EMAIndicator(df["Close"], l).ema_indicator()
-    if e1.iloc[-2] < e2.iloc[-2] and e1.iloc[-1] > e2.iloc[-1]:
-        return "BULLISH"
-    if e1.iloc[-2] > e2.iloc[-2] and e1.iloc[-1] < e2.iloc[-1]:
-        return "BEARISH"
-    return "NONE"
-
-def trend_strength(df):
-    e5 = EMAIndicator(df["Close"], 5).ema_indicator().iloc[-1]
-    e20 = EMAIndicator(df["Close"], 20).ema_indicator().iloc[-1]
-    e50 = EMAIndicator(df["Close"], 50).ema_indicator().iloc[-1]
-
-    score = 0
-    if e5 > e20: score += 1
-    if e20 > e50: score += 1
-
-    strength = int((score / 2) * 100)
-    signal = "BUY" if strength == 100 else "SELL" if strength == 0 else "HOLD"
-    return strength, signal
-
-# -----------------------------
-# Analysis Core
-# -----------------------------
-
-def analyze_tf(symbol, interval, period):
-    df = yf.download(symbol, interval=interval, period=period, progress=False)
-    if df.empty:
-        return {"error": "No data"}
-
-    df = clean_df(df)
-    df["EMA_5"] = EMAIndicator(df["Close"], 5).ema_indicator()
-    df["EMA_10"] = EMAIndicator(df["Close"], 10).ema_indicator()
-    df["EMA_20"] = EMAIndicator(df["Close"], 20).ema_indicator()
-    df["EMA_50"] = EMAIndicator(df["Close"], 50).ema_indicator()
-    df["VWAP"] = calculate_vwap(df)
-
-    strength, signal = trend_strength(df)
-
-    return {
-        "Price": round(df["Close"].iloc[-1], 2),
-        "EMA_5": round(df["EMA_5"].iloc[-1], 2),
-        "EMA_10": round(df["EMA_10"].iloc[-1], 2),
-        "EMA_20": round(df["EMA_20"].iloc[-1], 2),
-        "EMA_50": round(df["EMA_50"].iloc[-1], 2),
-        "VWAP": round(df["VWAP"].iloc[-1], 2),
-        "Trend_Strength_%": strength,
-        "Signal": signal
+def resample_tf(df, rule):
+    ohlc = {
+        'Open':'first',
+        'High':'max',
+        'Low':'min',
+        'Close':'last',
+        'Volume':'sum'
     }
+    return df.resample(rule).apply(ohlc).dropna()
 
 # -----------------------------
-# API
+# API ROUTE
 # -----------------------------
-
-@app.get("/health")
-def health():
-    return {"status": "OK"}
 
 @app.get("/analyze")
-def analyze(symbol: str = Query(...)):
-    return {
-        "symbol": symbol,
-        "strategy": "Adaptive EMA Trend Learning",
-        "analysis": {
-            "Daily": analyze_tf(symbol, "1d", "6mo"),
-            "Weekly": analyze_tf(symbol, "1wk", "2y"),
-            "Monthly": analyze_tf(symbol, "1mo", "5y"),
-            "Intraday_75m": analyze_tf(symbol, "75m", "15d"),
-            "Intraday_4H": analyze_tf(symbol, "240m", "60d"),
+def analyze(symbol: str):
+    try:
+        results = {}
+
+        # ---- Daily ----
+        daily = fetch_data(symbol, "1d", "6mo")
+        daily = guppy_ema(daily)
+        results["Daily"] = {
+            "Trend": identify_trend(daily),
+            "Dow": dow_confirmation(daily)
         }
-    }
+
+        # ---- Weekly ----
+        weekly = fetch_data(symbol, "1wk", "1y")
+        weekly = guppy_ema(weekly)
+        results["Weekly"] = {
+            "Trend": identify_trend(weekly),
+            "Dow": dow_confirmation(weekly)
+        }
+
+        # ---- 4H (resampled) ----
+        h1 = fetch_data(symbol, "60m", "60d")
+        h4 = resample_tf(h1, "4H")
+        h4 = guppy_ema(h4)
+        results["4H"] = {
+            "Trend": identify_trend(h4),
+            "Dow": dow_confirmation(h4)
+        }
+
+        # ---- 75 Min (resampled) ----
+        m15 = fetch_data(symbol, "15m", "30d")
+        m75 = resample_tf(m15, "75T")
+        m75 = guppy_ema(m75)
+        results["75Min"] = {
+            "Trend": identify_trend(m75),
+            "Dow": dow_confirmation(m75)
+        }
+
+        return JSONResponse({
+            "symbol": symbol,
+            "analysis": results
+        })
+
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 # -----------------------------
-# Frontend
+# Serve Frontend
 # -----------------------------
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

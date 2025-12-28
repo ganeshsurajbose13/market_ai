@@ -1,54 +1,61 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="UTF-8">
-<title>Market AI</title>
-<style>
-body { background:#0f172a;color:#e5e7eb;font-family:Arial;padding:20px }
-input,button{padding:10px;font-size:16px}
-button{background:#22c55e;border:none}
-table{width:100%;border-collapse:collapse;margin-top:20px}
-th,td{border:1px solid #334155;padding:8px;text-align:center}
-.BUY{color:#22c55e;font-weight:bold}
-.SELL{color:#ef4444;font-weight:bold}
-.HOLD{color:#facc15;font-weight:bold}
-</style>
+    <title>Market AI Search</title>
+    <style>
+        body { font-family: Arial; background:#0f172a; color:white; padding:30px }
+        input, button { padding:10px; font-size:16px }
+        table { border-collapse: collapse; margin-top:20px; width:100% }
+        th, td { border:1px solid #334155; padding:10px; text-align:center }
+        th { background:#1e293b }
+    </style>
 </head>
 <body>
 
-<h1>📈 Market AI Search</h1>
-<input id="sym" placeholder="RELIANCE.NS">
-<button onclick="go()">Analyze</button>
+<h2>📈 Market AI Search</h2>
 
-<div id="out"></div>
+<input id="symbol" placeholder="RELIANCE.NS" />
+<button onclick="analyze()">Analyze</button>
+
+<div id="output"></div>
 
 <script>
-async function go(){
-  const s=document.getElementById("sym").value;
-  const r=await fetch(`/analyze?symbol=${s}`);
-  const d=await r.json();
+async function analyze() {
+    const symbol = document.getElementById("symbol").value;
+    const out = document.getElementById("output");
+    out.innerHTML = "⏳ Loading...";
 
-  let h=`<h2>${d.symbol}</h2><table>
-  <tr><th>TF</th><th>Price</th><th>EMA5</th><th>EMA20</th><th>EMA50</th><th>Strength</th><th>Signal</th></tr>`;
+    try {
+        const res = await fetch(`/analyze?symbol=${symbol}`);
+        const data = await res.json();
 
-  for(const k in d.analysis){
-    const a=d.analysis[k];
-    if(a.error){
-      h+=`<tr><td>${k}</td><td colspan=6>No data</td></tr>`;
-    }else{
-      h+=`<tr>
-      <td>${k}</td>
-      <td>${a.Price}</td>
-      <td>${a.EMA_5}</td>
-      <td>${a.EMA_20}</td>
-      <td>${a.EMA_50}</td>
-      <td>${a.Trend_Strength_%}%</td>
-      <td class="${a.Signal}">${a.Signal}</td>
-      </tr>`;
+        if (data.error) {
+            out.innerHTML = "❌ " + data.error;
+            return;
+        }
+
+        let html = `<h3>${data.symbol}</h3>`;
+        html += `<table>
+                    <tr>
+                        <th>Timeframe</th>
+                        <th>Trend (Guppy EMA)</th>
+                        <th>Dow Theory</th>
+                    </tr>`;
+
+        for (let tf in data.analysis) {
+            html += `<tr>
+                        <td>${tf}</td>
+                        <td>${data.analysis[tf].Trend}</td>
+                        <td>${data.analysis[tf].Dow}</td>
+                     </tr>`;
+        }
+
+        html += "</table>";
+        out.innerHTML = html;
+
+    } catch (e) {
+        out.innerHTML = "❌ Failed to fetch data";
     }
-  }
-  h+="</table>";
-  document.getElementById("out").innerHTML=h;
 }
 </script>
 
