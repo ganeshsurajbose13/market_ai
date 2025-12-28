@@ -1,87 +1,57 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <title>Market AI Engine – Frontend</title>
-  <style>
-    body { font-family: Arial, sans-serif; padding: 20px; background: #f4f4f9; }
-    h1 { color: #333; }
-    input, button { padding: 8px; margin: 5px; }
-    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
-    th { background: #eee; }
-    .error { color: red; }
-  </style>
+    <title>Market AI Engine</title>
+    <style>
+        body { font-family: Arial; padding: 20px; }
+        input, button { padding: 10px; font-size: 16px; }
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+        th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+        th { background: #f4f4f4; }
+    </style>
 </head>
 <body>
-  <h1>Market AI Engine – Search Stock</h1>
-  <input type="text" id="symbol" placeholder="Enter stock symbol, e.g., RELIANCE.NS" />
-  <button onclick="fetchAnalysis()">Analyze</button>
 
-  <div id="result"></div>
+<h2>📊 Market AI Engine</h2>
 
-  <script>
-    async function fetchAnalysis() {
-      const symbol = document.getElementById("symbol").value.toUpperCase();
-      const resultDiv = document.getElementById("result");
-      resultDiv.innerHTML = "Loading...";
+<input id="symbol" placeholder="RELIANCE.NS" />
+<button onclick="analyze()">Analyze</button>
 
-      try {
-        const response = await fetch(`/analyze?symbol=${symbol}`);
-        const data = await response.json();
+<div id="result"></div>
 
-        if (data.error) {
-          resultDiv.innerHTML = `<p class="error">${data.error}</p>`;
-          return;
-        }
+<script>
+async function analyze() {
+    const symbol = document.getElementById("symbol").value;
+    document.getElementById("result").innerHTML = "Loading...";
 
-        let html = `<h2>Analysis for ${data.symbol}</h2>`;
-        html += `<p>Signal: <b>${data.signal}</b> | Probability: ${data.probability_%}%</p>`;
+    const res = await fetch(`/analyze?symbol=${symbol}`);
+    const data = await res.json();
 
-        html += `<table>
-          <tr>
-            <th>Timeframe</th>
-            <th>Price</th>
-            <th>VWAP</th>
-            <th>EMA_5</th>
-            <th>EMA_10</th>
-            <th>EMA_20</th>
-            <th>EMA_50</th>
-            <th>EMA 5-10 Cross</th>
-            <th>Guppy Trend</th>
-            <th>SuperTrend</th>
-          </tr>`;
-
-        for (const timeframe in data.analysis) {
-          const tf = data.analysis[timeframe];
-          if(tf.error){
-            html += `<tr>
-                      <td>${timeframe}</td>
-                      <td colspan="9">${tf.error}</td>
-                     </tr>`;
-          } else {
-            html += `<tr>
-                      <td>${timeframe}</td>
-                      <td>${tf.Price}</td>
-                      <td>${tf.VWAP}</td>
-                      <td>${tf.EMA_5}</td>
-                      <td>${tf.EMA_10}</td>
-                      <td>${tf.EMA_20}</td>
-                      <td>${tf.EMA_50}</td>
-                      <td>${tf.EMA_5_10_Cross}</td>
-                      <td>${tf.Guppy_Trend}</td>
-                      <td>${tf.SuperTrend}</td>
-                     </tr>`;
-          }
-        }
-
-        html += "</table>";
-        resultDiv.innerHTML = html;
-
-      } catch (error) {
-        resultDiv.innerHTML = `<p class="error">Error fetching data: ${error}</p>`;
-      }
+    if (data.error) {
+        document.getElementById("result").innerHTML = data.error;
+        return;
     }
-  </script>
+
+    let html = `<h3>Signal: ${data.signal} (${data.probability_%}%)</h3>`;
+    html += "<table><tr><th>Timeframe</th><th>Price</th><th>VWAP</th><th>EMA5</th><th>EMA10</th><th>Trend</th></tr>";
+
+    for (let tf in data.analysis) {
+        const d = data.analysis[tf];
+        if (d.error) continue;
+        html += `<tr>
+            <td>${tf}</td>
+            <td>${d.Price}</td>
+            <td>${d.VWAP}</td>
+            <td>${d.EMA_5}</td>
+            <td>${d.EMA_10}</td>
+            <td>${d.Guppy_Trend}</td>
+        </tr>`;
+    }
+
+    html += "</table>";
+    document.getElementById("result").innerHTML = html;
+}
+</script>
+
 </body>
 </html>
