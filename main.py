@@ -7,11 +7,12 @@ import requests
 from io import StringIO
 import joblib
 import os
+from fastapi.staticfiles import StaticFiles
 
-app = FastAPI(title="Market AI Engine – Stable v7 with Intraday Analysis")
+app = FastAPI(title="Market AI Engine – Stable v8 with Frontend")
 
 # -----------------------------
-# Fetch NSE + BSE stock list automatically
+# Fetch NSE + BSE stock list
 # -----------------------------
 def fetch_nse_stocks():
     url = "https://www1.nseindia.com/content/equities/EQUITY_L.csv"
@@ -111,7 +112,7 @@ def ml_predict(features: np.ndarray):
     return {"prob_up": round(float(probs[1]*100),2), "prob_down": round(float(probs[0]*100),2)}
 
 # -----------------------------
-# Analyze Timeframe (supports intraday)
+# Analyze Timeframe
 # -----------------------------
 def analyze_timeframe(symbol: str, interval: str, period: str) -> dict:
     df = yf.download(symbol, interval=interval, period=period, progress=False, auto_adjust=False)
@@ -140,10 +141,6 @@ def analyze_timeframe(symbol: str, interval: str, period: str) -> dict:
 # -----------------------------
 # API Endpoints
 # -----------------------------
-@app.get("/")
-def root():
-    return {"status": "Market AI Server Running"}
-
 @app.get("/health")
 def health():
     return {"status": "OK"}
@@ -153,13 +150,13 @@ def analyze(symbol: str = Query(..., description="Stock symbol like RELIANCE.NS"
     daily = analyze_timeframe(symbol, "1d", "6mo")
     weekly = analyze_timeframe(symbol, "1wk", "2y")
     monthly = analyze_timeframe(symbol, "1mo", "5y")
-    intraday_1h = analyze_timeframe(symbol, "60m", "60d")   # 1H intraday, last 60 days
-    intraday_4h = analyze_timeframe(symbol, "240m", "60d")  # 4H intraday, last 60 days
+    intraday_1h = analyze_timeframe(symbol, "60m", "60d")
+    intraday_4h = analyze_timeframe(symbol, "240m", "60d")
 
     if "error" in daily:
         return {"error": "Invalid symbol or no data"}
 
-    # SIMPLE DAILY PREDICTION LOGIC (SAFE)
+    # SIMPLE DAILY PREDICTION
     score = 0
     if daily["EMA_5"] > daily["EMA_10"]:
         score += 1
@@ -174,7 +171,6 @@ def analyze(symbol: str = Query(..., description="Stock symbol like RELIANCE.NS"
         signal="SELL"
     probability = round((score/3)*100,2)
 
-    # Placeholder ML feature vector
     features = np.array([daily["EMA_5"], daily["EMA_10"], daily["EMA_20"]])
     ml_prediction = ml_predict(features)
 
@@ -198,3 +194,8 @@ def search(q: str = Query(..., description="Enter stock symbol or name")):
     q_lower = q.lower()
     results = [s for s in stock_symbols if q_lower in s["symbol"].lower() or q_lower in s["name"].lower()]
     return {"query": q, "results": results[:30]}
+
+# -----------------------------
+# Serve frontend
+# -----------------------------
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
