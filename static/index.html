@@ -1,67 +1,114 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Market AI</title>
-  <style>
-    body { font-family: Arial; padding: 20px; }
-    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
-    th { background: #f2f2f2; }
-  </style>
+    <meta charset="UTF-8">
+    <title>📈 Market AI Search</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #0f172a;
+            color: #e5e7eb;
+            padding: 20px;
+        }
+        h1 {
+            color: #38bdf8;
+        }
+        input {
+            padding: 8px;
+            width: 200px;
+        }
+        button {
+            padding: 8px 12px;
+            cursor: pointer;
+            background: #22c55e;
+            border: none;
+            font-weight: bold;
+        }
+        table {
+            border-collapse: collapse;
+            margin-top: 20px;
+            width: 100%;
+        }
+        th, td {
+            border: 1px solid #334155;
+            padding: 8px;
+            text-align: center;
+        }
+        th {
+            background: #1e293b;
+        }
+        .error {
+            color: #f87171;
+            margin-top: 20px;
+        }
+    </style>
 </head>
 <body>
 
-<h2>📈 Market AI Search</h2>
+<h1>📈 Market AI Search</h1>
 
-<input id="symbol" placeholder="RELIANCE.NS">
+<input id="symbol" placeholder="BHEL.NS" />
 <button onclick="analyze()">Analyze</button>
 
-<pre id="status"></pre>
-<div id="output"></div>
+<div id="result"></div>
 
 <script>
 async function analyze() {
-  const s = document.getElementById("symbol").value;
-  document.getElementById("status").innerText = "Loading...";
-  document.getElementById("output").innerHTML = "";
+    const symbol = document.getElementById("symbol").value.trim();
+    const resultDiv = document.getElementById("result");
 
-  try {
-    const r = await fetch(`/analyze?symbol=${s}`);
-    const d = await r.json();
-
-    if (d.error) {
-      document.getElementById("status").innerText = d.error;
-      return;
+    if (!symbol) {
+        resultDiv.innerHTML = "<p class='error'>Enter a symbol</p>";
+        return;
     }
 
-    document.getElementById("status").innerText =
-      `${d.symbol} → ${d.signal} (${d.confidence_}%)`;
+    resultDiv.innerHTML = "⏳ Loading...";
 
-    let html = "<table><tr><th>TF</th><th>Price</th><th>VWAP</th><th>EMA5</th><th>EMA10</th><th>EMA20</th><th>Trend</th></tr>";
+    try {
+        const response = await fetch(`/analyze?symbol=${symbol}`);
+        const data = await response.json();
 
-    for (const tf in d.analysis) {
-      const a = d.analysis[tf];
-      if (a.error) {
-        html += `<tr><td>${tf}</td><td colspan="6">${a.error}</td></tr>`;
-      } else {
-        html += `<tr>
-          <td>${tf}</td>
-          <td>${a.Price}</td>
-          <td>${a.VWAP}</td>
-          <td>${a.EMA_5}</td>
-          <td>${a.EMA_10}</td>
-          <td>${a.EMA_20}</td>
-          <td>${a.Guppy_Trend}</td>
-        </tr>`;
-      }
+        if (data.error) {
+            resultDiv.innerHTML = `<p class="error">${data.error}</p>`;
+            return;
+        }
+
+        let html = `
+        <h2>${data.symbol} — ${data.signal} (${data.confidence_}% confidence)</h2>
+        <table>
+            <tr>
+                <th>Timeframe</th>
+                <th>Price</th>
+                <th>VWAP</th>
+                <th>EMA 5</th>
+                <th>EMA 10</th>
+                <th>EMA 20</th>
+                <th>Trend</th>
+            </tr>
+        `;
+
+        for (const tf in data.analysis) {
+            const a = data.analysis[tf];
+            html += `
+            <tr>
+                <td>${tf}</td>
+                <td>${a.Price ?? "-"}</td>
+                <td>${a.VWAP ?? "-"}</td>
+                <td>${a.EMA_5 ?? "-"}</td>
+                <td>${a.EMA_10 ?? "-"}</td>
+                <td>${a.EMA_20 ?? "-"}</td>
+                <td>${a.Guppy ?? "-"}</td>
+            </tr>
+            `;
+        }
+
+        html += "</table>";
+        resultDiv.innerHTML = html;
+
+    } catch (err) {
+        resultDiv.innerHTML = `<p class="error">Network error</p>`;
+        console.error(err);
     }
-
-    html += "</table>";
-    document.getElementById("output").innerHTML = html;
-
-  } catch {
-    document.getElementById("status").innerText = "Network error";
-  }
 }
 </script>
 
