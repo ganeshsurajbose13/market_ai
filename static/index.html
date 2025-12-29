@@ -1,156 +1,64 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
     <title>📈 Market AI Search</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #0f172a;
-            color: #e5e7eb;
-            padding: 20px;
-        }
-        h1 {
-            color: #38bdf8;
-        }
-        input, button {
-            padding: 10px;
-            font-size: 16px;
-            margin-right: 5px;
-        }
-        button {
-            background: #22c55e;
-            border: none;
-            cursor: pointer;
-        }
-        button:hover {
-            background: #16a34a;
-        }
-        .error {
-            color: #f87171;
-            margin-top: 15px;
-        }
-        table {
-            margin-top: 20px;
-            border-collapse: collapse;
-            width: 100%;
-        }
-        th, td {
-            border: 1px solid #334155;
-            padding: 8px;
-            text-align: center;
-        }
-        th {
-            background: #1e293b;
-        }
-        .signal-buy {
-            color: #22c55e;
-            font-weight: bold;
-        }
-        .signal-sell {
-            color: #ef4444;
-            font-weight: bold;
-        }
-        .signal-hold {
-            color: #facc15;
-            font-weight: bold;
-        }
+        body { font-family: Arial; background: #0f172a; color: white; text-align: center; }
+        input, button { padding: 10px; margin: 5px; font-size: 16px; }
+        table { margin: auto; border-collapse: collapse; }
+        td, th { border: 1px solid #555; padding: 8px; }
     </style>
 </head>
 <body>
 
 <h1>📈 Market AI Search</h1>
 
-<input id="symbolInput" placeholder="e.g. BHEL.NS" />
-<button onclick="analyzeStock()">Analyze</button>
+<input id="symbol" placeholder="RELIANCE.NS">
+<button onclick="analyze()">Analyze</button>
 
-<div id="status"></div>
+<p id="status"></p>
 <div id="result"></div>
 
 <script>
-async function analyzeStock() {
-    const symbol = document.getElementById("symbolInput").value.trim();
-    const status = document.getElementById("status");
-    const result = document.getElementById("result");
-
-    result.innerHTML = "";
-    status.innerHTML = "⏳ Fetching data...";
-
-    if (!symbol) {
-        status.innerHTML = "<span class='error'>Please enter a stock symbol</span>";
-        return;
-    }
+async function analyze() {
+    const symbol = document.getElementById("symbol").value;
+    document.getElementById("status").innerText = "Analyzing...";
+    document.getElementById("result").innerHTML = "";
 
     try {
-        const response = await fetch(`/analyze?symbol=${symbol}`);
-
-        if (!response.ok) {
-            throw new Error("API not reachable");
-        }
-
-        const data = await response.json();
+        const res = await fetch(`/analyze?symbol=${symbol}`);
+        const data = await res.json();
 
         if (data.error) {
-            status.innerHTML = `<span class='error'>${data.error}</span>`;
+            document.getElementById("status").innerText = data.error;
             return;
         }
 
-        status.innerHTML = `
-            <h2>
-                ${data.symbol} —
-                <span class="signal-${data.signal.toLowerCase()}">
-                    ${data.signal} (${data.confidence_%}%)
-                </span>
-            </h2>
-        `;
+        document.getElementById("status").innerText =
+            `${data.symbol} — ${data.signal} (${data.confidence_}%)`;
 
-        const tf = data.analysis;
+        let html = "<table><tr><th>TF</th><th>Price</th><th>VWAP</th><th>EMA5</th><th>EMA10</th><th>EMA20</th><th>Cross</th><th>Guppy</th></tr>";
 
-        result.innerHTML = `
-            <table>
-                <tr>
-                    <th>Timeframe</th>
-                    <th>Price</th>
-                    <th>VWAP</th>
-                    <th>EMA 5</th>
-                    <th>EMA 10</th>
-                    <th>EMA 20</th>
-                    <th>EMA Cross</th>
-                    <th>Guppy</th>
-                </tr>
-                ${row("Daily", tf.Daily)}
-                ${row("Weekly", tf.Weekly)}
-                ${row("Monthly", tf.Monthly)}
-            </table>
-        `;
+        for (const tf in data.analysis) {
+            const a = data.analysis[tf];
+            html += `<tr>
+                <td>${tf}</td>
+                <td>${a.Price}</td>
+                <td>${a.VWAP}</td>
+                <td>${a.EMA5}</td>
+                <td>${a.EMA10}</td>
+                <td>${a.EMA20}</td>
+                <td>${a.EMA_Cross}</td>
+                <td>${a.Guppy}</td>
+            </tr>`;
+        }
 
-    } catch (err) {
-        status.innerHTML = "<span class='error'>❌ Network or API error</span>";
-        console.error(err);
+        html += "</table>";
+        document.getElementById("result").innerHTML = html;
+
+    } catch (e) {
+        document.getElementById("status").innerText = "Network error";
     }
-}
-
-function row(name, d) {
-    if (!d || d.error) {
-        return `
-            <tr>
-                <td>${name}</td>
-                <td colspan="7">No data</td>
-            </tr>
-        `;
-    }
-    return `
-        <tr>
-            <td>${name}</td>
-            <td>${d.Price ?? "-"}</td>
-            <td>${d.VWAP ?? "-"}</td>
-            <td>${d.EMA_5 ?? "-"}</td>
-            <td>${d.EMA_10 ?? "-"}</td>
-            <td>${d.EMA_20 ?? "-"}</td>
-            <td>${d.EMA_Cross}</td>
-            <td>${d.Guppy}</td>
-        </tr>
-    `;
 }
 </script>
 
