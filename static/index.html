@@ -1,65 +1,107 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>📈 Market AI Search</title>
-    <style>
-        body { font-family: Arial; background: #0f172a; color: white; text-align: center; }
-        input, button { padding: 10px; margin: 5px; font-size: 16px; }
-        table { margin: auto; border-collapse: collapse; }
-        td, th { border: 1px solid #555; padding: 8px; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Market AI Search</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; background: #f4f4f4; }
+    h1 { color: #333; }
+    input, select, button { padding: 8px; margin: 5px 0; width: 100%; max-width: 400px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; background: #fff; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+    th { background: #eee; }
+    .signal { font-weight: bold; }
+    .BUY { color: green; }
+    .SELL { color: red; }
+    .HOLD { color: orange; }
+  </style>
 </head>
 <body>
 
 <h1>📈 Market AI Search</h1>
 
-<input id="symbol" placeholder="RELIANCE.NS">
-<button onclick="analyze()">Analyze</button>
+<input type="text" id="searchInput" placeholder="Type stock name or symbol..." />
+<select id="stockSelect">
+  <option value="">Select a stock</option>
+</select>
+<button id="analyzeBtn">Analyze</button>
 
-<p id="status"></p>
+<h2 id="selectedSymbol"></h2>
 <div id="result"></div>
 
 <script>
-async function analyze() {
-    const symbol = document.getElementById("symbol").value;
-    document.getElementById("status").innerText = "Analyzing...";
-    document.getElementById("result").innerHTML = "";
+const searchInput = document.getElementById("searchInput");
+const stockSelect = document.getElementById("stockSelect");
+const analyzeBtn = document.getElementById("analyzeBtn");
+const selectedSymbolEl = document.getElementById("selectedSymbol");
+const resultDiv = document.getElementById("result");
+
+searchInput.addEventListener("input", async () => {
+    const q = searchInput.value;
+    if(q.length < 2) return;
+    try {
+        const res = await fetch(`/search?q=${q}`);
+        const data = await res.json();
+        stockSelect.innerHTML = '<option value="">Select a stock</option>';
+        data.results.forEach(stock => {
+            const opt = document.createElement("option");
+            opt.value = stock.symbol;
+            opt.textContent = `${stock.symbol} — ${stock.name}`;
+            stockSelect.appendChild(opt);
+        });
+    } catch(e) {
+        console.error("Search error:", e);
+    }
+});
+
+analyzeBtn.addEventListener("click", async () => {
+    const symbol = stockSelect.value;
+    if(!symbol) return alert("Please select a stock.");
+    selectedSymbolEl.textContent = symbol + " — Analyzing...";
+    resultDiv.innerHTML = "";
 
     try {
         const res = await fetch(`/analyze?symbol=${symbol}`);
         const data = await res.json();
 
-        if (data.error) {
-            document.getElementById("status").innerText = data.error;
+        if(data.error){
+            selectedSymbolEl.textContent = symbol + " — ❌ Error: " + data.error;
             return;
         }
 
-        document.getElementById("status").innerText =
-            `${data.symbol} — ${data.signal} (${data.confidence_}%)`;
+        selectedSymbolEl.textContent = `${symbol} — ${data.signal} (${data.probability_%}%)`;
 
-        let html = "<table><tr><th>TF</th><th>Price</th><th>VWAP</th><th>EMA5</th><th>EMA10</th><th>EMA20</th><th>Cross</th><th>Guppy</th></tr>";
+        const tablesHTML = Object.entries(data.analysis).map(([tf, vals]) => {
+            if(vals.error) return `<h3>${tf}: No data</h3>`;
+            return `
+                <h3>${tf}</h3>
+                <table>
+                    <tr>
+                        <th>Price</th><th>VWAP</th><th>EMA 5</th><th>EMA 10</th><th>EMA 20</th><th>EMA 50</th><th>EMA5/10 Cross</th><th>Guppy</th><th>SuperTrend</th>
+                    </tr>
+                    <tr>
+                        <td>${vals.Price}</td>
+                        <td>${vals.VWAP}</td>
+                        <td>${vals.EMA_5}</td>
+                        <td>${vals.EMA_10}</td>
+                        <td>${vals.EMA_20}</td>
+                        <td>${vals.EMA_50}</td>
+                        <td>${vals.EMA_5_10_Cross}</td>
+                        <td>${vals.Guppy_Trend}</td>
+                        <td>${vals.SuperTrend}</td>
+                    </tr>
+                </table>
+            `;
+        }).join("");
 
-        for (const tf in data.analysis) {
-            const a = data.analysis[tf];
-            html += `<tr>
-                <td>${tf}</td>
-                <td>${a.Price}</td>
-                <td>${a.VWAP}</td>
-                <td>${a.EMA5}</td>
-                <td>${a.EMA10}</td>
-                <td>${a.EMA20}</td>
-                <td>${a.EMA_Cross}</td>
-                <td>${a.Guppy}</td>
-            </tr>`;
-        }
+        resultDiv.innerHTML = tablesHTML;
 
-        html += "</table>";
-        document.getElementById("result").innerHTML = html;
-
-    } catch (e) {
-        document.getElementById("status").innerText = "Network error";
+    } catch(e) {
+        console.error("Analyze error:", e);
+        selectedSymbolEl.textContent = symbol + " — ❌ Network error";
     }
-}
+});
 </script>
 
 </body>
