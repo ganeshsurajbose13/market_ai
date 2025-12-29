@@ -13,20 +13,26 @@
         h1 {
             color: #38bdf8;
         }
-        input {
-            padding: 8px;
-            width: 200px;
+        input, button {
+            padding: 10px;
+            font-size: 16px;
+            margin-right: 5px;
         }
         button {
-            padding: 8px 12px;
-            cursor: pointer;
             background: #22c55e;
             border: none;
-            font-weight: bold;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #16a34a;
+        }
+        .error {
+            color: #f87171;
+            margin-top: 15px;
         }
         table {
-            border-collapse: collapse;
             margin-top: 20px;
+            border-collapse: collapse;
             width: 100%;
         }
         th, td {
@@ -37,9 +43,17 @@
         th {
             background: #1e293b;
         }
-        .error {
-            color: #f87171;
-            margin-top: 20px;
+        .signal-buy {
+            color: #22c55e;
+            font-weight: bold;
+        }
+        .signal-sell {
+            color: #ef4444;
+            font-weight: bold;
+        }
+        .signal-hold {
+            color: #facc15;
+            font-weight: bold;
         }
     </style>
 </head>
@@ -47,68 +61,96 @@
 
 <h1>📈 Market AI Search</h1>
 
-<input id="symbol" placeholder="BHEL.NS" />
-<button onclick="analyze()">Analyze</button>
+<input id="symbolInput" placeholder="e.g. BHEL.NS" />
+<button onclick="analyzeStock()">Analyze</button>
 
+<div id="status"></div>
 <div id="result"></div>
 
 <script>
-async function analyze() {
-    const symbol = document.getElementById("symbol").value.trim();
-    const resultDiv = document.getElementById("result");
+async function analyzeStock() {
+    const symbol = document.getElementById("symbolInput").value.trim();
+    const status = document.getElementById("status");
+    const result = document.getElementById("result");
+
+    result.innerHTML = "";
+    status.innerHTML = "⏳ Fetching data...";
 
     if (!symbol) {
-        resultDiv.innerHTML = "<p class='error'>Enter a symbol</p>";
+        status.innerHTML = "<span class='error'>Please enter a stock symbol</span>";
         return;
     }
 
-    resultDiv.innerHTML = "⏳ Loading...";
-
     try {
         const response = await fetch(`/analyze?symbol=${symbol}`);
+
+        if (!response.ok) {
+            throw new Error("API not reachable");
+        }
+
         const data = await response.json();
 
         if (data.error) {
-            resultDiv.innerHTML = `<p class="error">${data.error}</p>`;
+            status.innerHTML = `<span class='error'>${data.error}</span>`;
             return;
         }
 
-        let html = `
-        <h2>${data.symbol} — ${data.signal} (${data.confidence_}% confidence)</h2>
-        <table>
-            <tr>
-                <th>Timeframe</th>
-                <th>Price</th>
-                <th>VWAP</th>
-                <th>EMA 5</th>
-                <th>EMA 10</th>
-                <th>EMA 20</th>
-                <th>Trend</th>
-            </tr>
+        status.innerHTML = `
+            <h2>
+                ${data.symbol} —
+                <span class="signal-${data.signal.toLowerCase()}">
+                    ${data.signal} (${data.confidence_%}%)
+                </span>
+            </h2>
         `;
 
-        for (const tf in data.analysis) {
-            const a = data.analysis[tf];
-            html += `
-            <tr>
-                <td>${tf}</td>
-                <td>${a.Price ?? "-"}</td>
-                <td>${a.VWAP ?? "-"}</td>
-                <td>${a.EMA_5 ?? "-"}</td>
-                <td>${a.EMA_10 ?? "-"}</td>
-                <td>${a.EMA_20 ?? "-"}</td>
-                <td>${a.Guppy ?? "-"}</td>
-            </tr>
-            `;
-        }
+        const tf = data.analysis;
 
-        html += "</table>";
-        resultDiv.innerHTML = html;
+        result.innerHTML = `
+            <table>
+                <tr>
+                    <th>Timeframe</th>
+                    <th>Price</th>
+                    <th>VWAP</th>
+                    <th>EMA 5</th>
+                    <th>EMA 10</th>
+                    <th>EMA 20</th>
+                    <th>EMA Cross</th>
+                    <th>Guppy</th>
+                </tr>
+                ${row("Daily", tf.Daily)}
+                ${row("Weekly", tf.Weekly)}
+                ${row("Monthly", tf.Monthly)}
+            </table>
+        `;
 
     } catch (err) {
-        resultDiv.innerHTML = `<p class="error">Network error</p>`;
+        status.innerHTML = "<span class='error'>❌ Network or API error</span>";
         console.error(err);
     }
+}
+
+function row(name, d) {
+    if (!d || d.error) {
+        return `
+            <tr>
+                <td>${name}</td>
+                <td colspan="7">No data</td>
+            </tr>
+        `;
+    }
+    return `
+        <tr>
+            <td>${name}</td>
+            <td>${d.Price ?? "-"}</td>
+            <td>${d.VWAP ?? "-"}</td>
+            <td>${d.EMA_5 ?? "-"}</td>
+            <td>${d.EMA_10 ?? "-"}</td>
+            <td>${d.EMA_20 ?? "-"}</td>
+            <td>${d.EMA_Cross}</td>
+            <td>${d.Guppy}</td>
+        </tr>
+    `;
 }
 </script>
 
