@@ -22,24 +22,31 @@ async function analyze() {
     const symbol = document.getElementById('symbol').value;
     if (!symbol) return alert("Enter a stock symbol!");
 
-    const res = await fetch(`/analyze?symbol=${symbol}`);
-    const data = await res.json();
+    try {
+        const res = await fetch(`/analyze?symbol=${symbol}`);
+        const data = await res.json();
+        console.log("Received:", data);
 
-    if (data.error) {
-        document.getElementById('result').innerHTML = "❌ " + data.error;
-        return;
+        if (data.error) {
+            document.getElementById('result').innerHTML = "❌ " + data.error;
+            return;
+        }
+
+        let html = `<h2>${symbol} — ${data.signal} (${data.probability_%}%)</h2>`;
+        html += "<table><tr><th>Timeframe</th><th>Price</th><th>VWAP</th><th>EMA5</th><th>EMA10</th><th>EMA20</th></tr>";
+
+        for (let tf in data.analysis) {
+            const d = data.analysis[tf];
+            html += `<tr><td>${tf}</td><td>${d.Price}</td><td>${d.VWAP}</td><td>${d.EMA_5}</td><td>${d.EMA_10}</td><td>${d.EMA_20}</td></tr>`;
+        }
+
+        html += "</table>";
+        document.getElementById('result').innerHTML = html;
+
+    } catch (err) {
+        console.error(err);
+        document.getElementById('result').innerHTML = "❌ Error fetching data.";
     }
-
-    let html = `<h2>${symbol} — ${data.signal} (${data.probability_%}%)</h2>`;
-    html += "<table><tr><th>Timeframe</th><th>Price</th><th>VWAP</th><th>EMA5</th><th>EMA10</th><th>EMA20</th></tr>";
-
-    for (let tf in data.analysis) {
-        const d = data.analysis[tf];
-        html += `<tr><td>${tf}</td><td>${d.Price}</td><td>${d.VWAP}</td><td>${d.EMA_5}</td><td>${d.EMA_10}</td><td>${d.EMA_20}</td></tr>`;
-    }
-
-    html += "</table>";
-    document.getElementById('result').innerHTML = html;
 }
 </script>
 </body>

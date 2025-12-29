@@ -1,16 +1,23 @@
 from fastapi import FastAPI, Query
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import RedirectResponse
+from fastapi.middleware.cors import CORSMiddleware
 import yfinance as yf
 import pandas as pd
-import numpy as np
 from ta.trend import EMAIndicator
 
 app = FastAPI(title="Market AI Engine – Stable v8")
 
-# -----------------------------
-# Utility Functions
-# -----------------------------
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
+# Utility functions
 def clean_df(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df = df[["Open", "High", "Low", "Close", "Volume"]]
@@ -32,19 +39,19 @@ def ema_cross(df: pd.DataFrame, short: int, long: int) -> str:
     else:
         return "NO CROSS"
 
-# -----------------------------
-# Analyze Function
-# -----------------------------
+# Analyze function
 def analyze_timeframe(symbol: str, interval: str, period: str) -> dict:
     df = yf.download(symbol, interval=interval, period=period, progress=False, auto_adjust=False)
     if df.empty:
         return {"error": "No data"}
+    
     df = clean_df(df)
     df["EMA_5"] = EMAIndicator(df["Close"], 5).ema_indicator()
     df["EMA_10"] = EMAIndicator(df["Close"], 10).ema_indicator()
     df["EMA_20"] = EMAIndicator(df["Close"], 20).ema_indicator()
     df["EMA_50"] = EMAIndicator(df["Close"], 50).ema_indicator()
     df["VWAP"] = calculate_vwap(df)
+    
     return {
         "Price": round(float(df["Close"].iloc[-1]), 2),
         "VWAP": round(float(df["VWAP"].iloc[-1]), 2),
@@ -55,9 +62,7 @@ def analyze_timeframe(symbol: str, interval: str, period: str) -> dict:
         "EMA_5_10_Cross": ema_cross(df, 5, 10)
     }
 
-# -----------------------------
-# API Endpoints
-# -----------------------------
+# API endpoints
 @app.get("/health")
 def health():
     return {"status": "OK"}
@@ -100,13 +105,8 @@ def analyze(symbol: str = Query(..., description="Stock symbol like RELIANCE.NS"
         }
     }
 
-# -----------------------------
 # Serve frontend
-# -----------------------------
 app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# Optional: redirect root to static HTML
-from fastapi.responses import RedirectResponse
 
 @app.get("/")
 def root_redirect():
