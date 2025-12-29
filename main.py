@@ -1,46 +1,22 @@
 from fastapi import FastAPI, Query
+from fastapi.middleware.cors import CORSMiddleware
 import yfinance as yf
 import pandas as pd
 import numpy as np
 from ta.trend import EMAIndicator
-import requests
-from io import StringIO
-import joblib
-import os
-from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(title="Market AI Engine – Stable v8 with Frontend")
 
 # -----------------------------
-# Fetch NSE + BSE stock list
+# CORS for frontend
 # -----------------------------
-def fetch_nse_stocks():
-    url = "https://www1.nseindia.com/content/equities/EQUITY_L.csv"
-    try:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(url, headers=headers)
-        df = pd.read_csv(StringIO(response.text))
-        df = df[["SC_NAME", "SYMBOL"]]
-        df["SYMBOL"] = df["SYMBOL"].astype(str) + ".NS"
-        return [{"symbol": row["SYMBOL"], "name": row["SC_NAME"]} for _, row in df.iterrows()]
-    except Exception as e:
-        print("Error fetching NSE stocks:", e)
-        return []
-
-def fetch_bse_stocks():
-    url = "https://www.bseindia.com/download/BhavCopy/Equity/EQ_ISINCODE.csv"
-    try:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(url, headers=headers)
-        df = pd.read_csv(StringIO(response.text))
-        df = df[["SC_NAME", "SC_CODE"]]
-        df["SYMBOL"] = df["SC_CODE"].astype(str) + ".BO"
-        return [{"symbol": row["SYMBOL"], "name": row["SC_NAME"]} for _, row in df.iterrows()]
-    except Exception as e:
-        print("Error fetching BSE stocks:", e)
-        return []
-
-stock_symbols = fetch_nse_stocks() + fetch_bse_stocks()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # for testing; later restrict to your frontend URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # -----------------------------
 # Utility Functions
@@ -60,6 +36,8 @@ def calculate_vwap(df: pd.DataFrame) -> pd.Series:
 def ema_cross(df: pd.DataFrame, short: int, long: int) -> str:
     ema_short = EMAIndicator(df["Close"], short).ema_indicator()
     ema_long = EMAIndicator(df["Close"], long).ema_indicator()
+    if len(ema_short) < 2:  # avoid index error
+        return "NO CROSS"
     if ema_short.iloc[-2] < ema_long.iloc[-2] and ema_short.iloc[-1] > ema_long.iloc[-1]:
         return "BULLISH CROSS"
     elif ema_short.iloc[-2] > ema_long.iloc[-2] and ema_short.iloc[-1] < ema_long.iloc[-1]:
@@ -92,26 +70,6 @@ def supertrend(df: pd.DataFrame, period=7, multiplier=3):
     return trend
 
 # -----------------------------
-# ML Placeholder
-# -----------------------------
-ML_MODEL_PATH = "ml_model.pkl"
-ml_model = None
-if os.path.exists(ML_MODEL_PATH):
-    try:
-        ml_model = joblib.load(ML_MODEL_PATH)
-        print("ML model loaded successfully")
-    except Exception as e:
-        print("Error loading ML model:", e)
-else:
-    print("No ML model found yet")
-
-def ml_predict(features: np.ndarray):
-    if ml_model is None:
-        return {"prob_up": None, "prob_down": None, "note": "ML model not loaded"}
-    probs = ml_model.predict_proba(features.reshape(1,-1))[0]
-    return {"prob_up": round(float(probs[1]*100),2), "prob_down": round(float(probs[0]*100),2)}
-
-# -----------------------------
 # Analyze Timeframe
 # -----------------------------
 def analyze_timeframe(symbol: str, interval: str, period: str) -> dict:
@@ -119,10 +77,10 @@ def analyze_timeframe(symbol: str, interval: str, period: str) -> dict:
     if df.empty:
         return {"error": "No data"}
     df = clean_df(df)
-    df["EMA_5"] = EMAIndicator(df["Close"], 5).ema_indicator()
-    df["EMA_10"] = EMAIndicator(df["Close"], 10).ema_indicator()
-    df["EMA_20"] = EMAIndicator(df["Close"], 20).ema_indicator()
-    df["EMA_50"] = EMAIndicator(df["Close"], 50).ema_indicator()
+    df["EMA_5"] = EMAIndicator(df["Close"],5).ema_indicator()
+    df["EMA_10"] = EMAIndicator(df["Close"],10).ema_indicator()
+    df["EMA_20"] = EMAIndicator(df["Close"],20).ema_indicator()
+    df["EMA_50"] = EMAIndicator(df["Close"],50).ema_indicator()
     df["VWAP"] = calculate_vwap(df)
     g_trend = guppy_ema(df)
     st_trend = supertrend(df)
@@ -141,45 +99,41 @@ def analyze_timeframe(symbol: str, interval: str, period: str) -> dict:
 # -----------------------------
 # API Endpoints
 # -----------------------------
+@app.get("/")
+def root():
+    return {"status": "Market AI Server Running"}
+
 @app.get("/health")
 def health():
     return {"status": "OK"}
 
 @app.get("/analyze")
 def analyze(symbol: str = Query(..., description="Stock symbol like RELIANCE.NS")):
-    daily = analyze_timeframe(symbol, "1d", "6mo")
-    weekly = analyze_timeframe(symbol, "1wk", "2y")
-    monthly = analyze_timeframe(symbol, "1mo", "5y")
-    intraday_1h = analyze_timeframe(symbol, "60m", "60d")
-    intraday_4h = analyze_timeframe(symbol, "240m", "60d")
+    daily = analyze_timeframe(symbol,"1d","6mo")
+    weekly = analyze_timeframe(symbol,"1wk","2y")
+    monthly = analyze_timeframe(symbol,"1mo","5y")
+    intraday_1h = analyze_timeframe(symbol,"60m","60d")
+    intraday_4h = analyze_timeframe(symbol,"240m","60d")
 
     if "error" in daily:
         return {"error": "Invalid symbol or no data"}
 
-    # SIMPLE DAILY PREDICTION
+    # Daily prediction logic
     score = 0
-    if daily["EMA_5"] > daily["EMA_10"]:
-        score += 1
-    if daily["EMA_10"] > daily["EMA_20"]:
-        score += 1
-    if daily["Price"] > daily["VWAP"]:
-        score += 1
-    signal = "HOLD"
-    if score==3:
-        signal="BUY"
-    elif score==0:
-        signal="SELL"
-    probability = round((score/3)*100,2)
+    if daily["EMA_5"] > daily["EMA_10"]: score+=1
+    if daily["EMA_10"] > daily["EMA_20"]: score+=1
+    if daily["Price"] > daily["VWAP"]: score+=1
 
-    features = np.array([daily["EMA_5"], daily["EMA_10"], daily["EMA_20"]])
-    ml_prediction = ml_predict(features)
+    signal = "HOLD"
+    if score==3: signal="BUY"
+    elif score==0: signal="SELL"
+    probability = round((score/3)*100,2)
 
     return {
         "symbol": symbol,
         "prediction_based_on": "DAILY",
         "signal": signal,
         "probability_%": probability,
-        "ml_prediction": ml_prediction,
         "analysis": {
             "Daily": daily,
             "Weekly": weekly,
@@ -188,14 +142,3 @@ def analyze(symbol: str = Query(..., description="Stock symbol like RELIANCE.NS"
             "Intraday_4H": intraday_4h
         }
     }
-
-@app.get("/search")
-def search(q: str = Query(..., description="Enter stock symbol or name")):
-    q_lower = q.lower()
-    results = [s for s in stock_symbols if q_lower in s["symbol"].lower() or q_lower in s["name"].lower()]
-    return {"query": q, "results": results[:30]}
-
-# -----------------------------
-# Serve frontend
-# -----------------------------
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
