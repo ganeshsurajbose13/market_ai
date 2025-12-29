@@ -1,15 +1,16 @@
 from fastapi import FastAPI, Query
+from fastapi.staticfiles import StaticFiles
 import yfinance as yf
 import pandas as pd
 import numpy as np
 from ta.trend import EMAIndicator
-from fastapi.staticfiles import StaticFiles
 
-app = FastAPI(title="Market AI Engine – Clean v1")
+app = FastAPI(title="Market AI Engine – Stable v8")
 
 # -----------------------------
 # Utility Functions
 # -----------------------------
+
 def clean_df(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df = df[["Open", "High", "Low", "Close", "Volume"]]
@@ -31,32 +32,11 @@ def ema_cross(df: pd.DataFrame, short: int, long: int) -> str:
     else:
         return "NO CROSS"
 
-def guppy_ema(df: pd.DataFrame):
-    short_emas = [EMAIndicator(df["Close"], x).ema_indicator() for x in [3,5,8,10,12,15]]
-    long_emas  = [EMAIndicator(df["Close"], x).ema_indicator() for x in [30,35,40,45,50,60]]
-    short_mean = pd.concat(short_emas, axis=1).mean(axis=1)
-    long_mean  = pd.concat(long_emas, axis=1).mean(axis=1)
-    if short_mean.iloc[-1] > long_mean.iloc[-1]:
-        return "BULLISH GMMA"
-    elif short_mean.iloc[-1] < long_mean.iloc[-1]:
-        return "BEARISH GMMA"
-    else:
-        return "NEUTRAL GMMA"
-
-def supertrend(df: pd.DataFrame, period=7, multiplier=3):
-    hl2 = (df['High'] + df['Low']) / 2
-    atr = df['High'].rolling(period).max() - df['Low'].rolling(period).min()
-    upperband = hl2 + (multiplier * atr)
-    lowerband = hl2 - (multiplier * atr)
-    trend = "NEUTRAL"
-    if df['Close'].iloc[-1] > upperband.iloc[-1]:
-        trend = "BULLISH SUPERTREND"
-    elif df['Close'].iloc[-1] < lowerband.iloc[-1]:
-        trend = "BEARISH SUPERTREND"
-    return trend
-
+# -----------------------------
+# Analyze Function
+# -----------------------------
 def analyze_timeframe(symbol: str, interval: str, period: str) -> dict:
-    df = yf.download(symbol, interval=interval, period=period, progress=False)
+    df = yf.download(symbol, interval=interval, period=period, progress=False, auto_adjust=False)
     if df.empty:
         return {"error": "No data"}
     df = clean_df(df)
@@ -66,24 +46,18 @@ def analyze_timeframe(symbol: str, interval: str, period: str) -> dict:
     df["EMA_50"] = EMAIndicator(df["Close"], 50).ema_indicator()
     df["VWAP"] = calculate_vwap(df)
     return {
-        "Price": round(float(df["Close"].iloc[-1]),2),
-        "VWAP": round(float(df["VWAP"].iloc[-1]),2),
-        "EMA_5": round(float(df["EMA_5"].iloc[-1]),2),
-        "EMA_10": round(float(df["EMA_10"].iloc[-1]),2),
-        "EMA_20": round(float(df["EMA_20"].iloc[-1]),2),
-        "EMA_50": round(float(df["EMA_50"].iloc[-1]),2),
-        "EMA_5_10_Cross": ema_cross(df,5,10),
-        "Guppy_Trend": guppy_ema(df),
-        "SuperTrend": supertrend(df)
+        "Price": round(float(df["Close"].iloc[-1]), 2),
+        "VWAP": round(float(df["VWAP"].iloc[-1]), 2),
+        "EMA_5": round(float(df["EMA_5"].iloc[-1]), 2),
+        "EMA_10": round(float(df["EMA_10"].iloc[-1]), 2),
+        "EMA_20": round(float(df["EMA_20"].iloc[-1]), 2),
+        "EMA_50": round(float(df["EMA_50"].iloc[-1]), 2),
+        "EMA_5_10_Cross": ema_cross(df, 5, 10)
     }
 
 # -----------------------------
 # API Endpoints
 # -----------------------------
-@app.get("/")
-def root():
-    return {"status": "Market AI Server Running"}
-
 @app.get("/health")
 def health():
     return {"status": "OK"}
@@ -93,21 +67,26 @@ def analyze(symbol: str = Query(..., description="Stock symbol like RELIANCE.NS"
     daily = analyze_timeframe(symbol, "1d", "6mo")
     weekly = analyze_timeframe(symbol, "1wk", "2y")
     monthly = analyze_timeframe(symbol, "1mo", "5y")
-    intraday_1h = analyze_timeframe(symbol, "60m", "60d")
-    intraday_4h = analyze_timeframe(symbol, "240m", "60d")
-    
+
     if "error" in daily:
         return {"error": "Invalid symbol or no data"}
 
-    # SIMPLE DAILY SIGNAL
+    # Simple daily prediction
     score = 0
-    if daily["EMA_5"] > daily["EMA_10"]: score +=1
-    if daily["EMA_10"] > daily["EMA_20"]: score +=1
-    if daily["Price"] > daily["VWAP"]: score +=1
+    if daily["EMA_5"] > daily["EMA_10"]:
+        score += 1
+    if daily["EMA_10"] > daily["EMA_20"]:
+        score += 1
+    if daily["Price"] > daily["VWAP"]:
+        score += 1
+
     signal = "HOLD"
-    if score==3: signal="BUY"
-    elif score==0: signal="SELL"
-    probability = round((score/3)*100,2)
+    if score == 3:
+        signal = "BUY"
+    elif score == 0:
+        signal = "SELL"
+
+    probability = round((score / 3) * 100, 2)
 
     return {
         "symbol": symbol,
@@ -117,9 +96,7 @@ def analyze(symbol: str = Query(..., description="Stock symbol like RELIANCE.NS"
         "analysis": {
             "Daily": daily,
             "Weekly": weekly,
-            "Monthly": monthly,
-            "Intraday_1H": intraday_1h,
-            "Intraday_4H": intraday_4h
+            "Monthly": monthly
         }
     }
 
@@ -127,3 +104,10 @@ def analyze(symbol: str = Query(..., description="Stock symbol like RELIANCE.NS"
 # Serve frontend
 # -----------------------------
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Optional: redirect root to static HTML
+from fastapi.responses import RedirectResponse
+
+@app.get("/")
+def root_redirect():
+    return RedirectResponse(url="/static/index.html")

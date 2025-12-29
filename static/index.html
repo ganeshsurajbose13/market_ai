@@ -1,51 +1,46 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Market AI Search</title>
-    <style>
-        body { font-family: Arial; margin: 20px; }
-        input, button { padding: 8px; font-size: 16px; margin-right: 5px; }
-        table { border-collapse: collapse; margin-top: 20px; width: 100%; }
-        th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
-        th { background-color: #f0f0f0; }
-    </style>
+<meta charset="UTF-8">
+<title>Market AI Search</title>
+<style>
+body { font-family: Arial; margin: 30px; }
+input, button { padding: 8px; font-size: 16px; }
+table { border-collapse: collapse; margin-top: 20px; }
+th, td { border: 1px solid #333; padding: 8px; }
+</style>
 </head>
 <body>
-    <h1>📈 Market AI Search</h1>
-    <input type="text" id="symbol" placeholder="Enter stock symbol, e.g. RELIANCE.NS" />
-    <button onclick="analyze()">Analyze</button>
-    <div id="result"></div>
+<h1>📈 Market AI Search</h1>
+<input type="text" id="symbol" placeholder="Enter stock symbol like RELIANCE.NS">
+<button onclick="analyze()">Analyze</button>
 
-    <script>
-        async function analyze() {
-            const symbol = document.getElementById("symbol").value.trim();
-            if(!symbol){ alert("Enter a symbol"); return; }
-            const response = await fetch(`/analyze?symbol=${symbol}`);
-            const data = await response.json();
-            if(data.error){
-                document.getElementById("result").innerHTML = `<p style="color:red;">${data.error}</p>`;
-                return;
-            }
-            let html = `<h2>${data.symbol} — ${data.signal} (${data.probability_%}%)</h2>`;
-            html += `<table><tr><th>Timeframe</th><th>Price</th><th>VWAP</th><th>EMA 5</th><th>EMA 10</th><th>EMA 20</th><th>EMA 50</th><th>EMA 5/10</th><th>Guppy</th><th>SuperTrend</th></tr>`;
-            for(const tf of ["Daily","Weekly","Monthly","Intraday_1H","Intraday_4H"]){
-                const a = data.analysis[tf];
-                html += `<tr>
-                    <td>${tf}</td>
-                    <td>${a.Price}</td>
-                    <td>${a.VWAP}</td>
-                    <td>${a.EMA_5}</td>
-                    <td>${a.EMA_10}</td>
-                    <td>${a.EMA_20}</td>
-                    <td>${a.EMA_50}</td>
-                    <td>${a.EMA_5_10_Cross}</td>
-                    <td>${a.Guppy_Trend}</td>
-                    <td>${a.SuperTrend}</td>
-                </tr>`;
-            }
-            html += `</table>`;
-            document.getElementById("result").innerHTML = html;
-        }
-    </script>
+<div id="result"></div>
+
+<script>
+async function analyze() {
+    const symbol = document.getElementById('symbol').value;
+    if (!symbol) return alert("Enter a stock symbol!");
+
+    const res = await fetch(`/analyze?symbol=${symbol}`);
+    const data = await res.json();
+
+    if (data.error) {
+        document.getElementById('result').innerHTML = "❌ " + data.error;
+        return;
+    }
+
+    let html = `<h2>${symbol} — ${data.signal} (${data.probability_%}%)</h2>`;
+    html += "<table><tr><th>Timeframe</th><th>Price</th><th>VWAP</th><th>EMA5</th><th>EMA10</th><th>EMA20</th></tr>";
+
+    for (let tf in data.analysis) {
+        const d = data.analysis[tf];
+        html += `<tr><td>${tf}</td><td>${d.Price}</td><td>${d.VWAP}</td><td>${d.EMA_5}</td><td>${d.EMA_10}</td><td>${d.EMA_20}</td></tr>`;
+    }
+
+    html += "</table>";
+    document.getElementById('result').innerHTML = html;
+}
+</script>
 </body>
 </html>
