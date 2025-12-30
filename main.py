@@ -1,14 +1,18 @@
 from fastapi import FastAPI, Query
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
-from fastapi.middleware.cors import CORSMiddleware
-import yfinance as yf
 import pandas as pd
-from ta.trend import EMAIndicator
+import yfinance as yf
 
-app = FastAPI(title="Market AI Engine – Stable v8")
+try:
+    from ta.trend import EMAIndicator
+except Exception:
+    EMAIndicator = None
 
-# CORS middleware
+app = FastAPI(title="Market AI Engine – Stable")
+
+# ---------------- CORS ----------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,87 +21,88 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Utility functions
-def clean_df(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
+# ---------------- UTILITIES ----------------
+def clean_df(df):
     df = df[["Open", "High", "Low", "Close", "Volume"]]
     df = df.apply(pd.to_numeric, errors="coerce")
     df.dropna(inplace=True)
     return df
 
-def calculate_vwap(df: pd.DataFrame) -> pd.Series:
-    typical_price = (df["High"] + df["Low"] + df["Close"]) / 3
-    return (typical_price * df["Volume"]).cumsum() / df["Volume"].cumsum()
+def calculate_vwap(df):
+    tp = (df["High"] + df["Low"] + df["Close"]) / 3
+    return (tp * df["Volume"]).cumsum() / df["Volume"].cumsum()
 
-def ema_cross(df: pd.DataFrame, short: int, long: int) -> str:
-    ema_short = EMAIndicator(df["Close"], short).ema_indicator()
-    ema_long = EMAIndicator(df["Close"], long).ema_indicator()
-    if ema_short.iloc[-2] < ema_long.iloc[-2] and ema_short.iloc[-1] > ema_long.iloc[-1]:
-        return "BULLISH CROSS"
-    elif ema_short.iloc[-2] > ema_long.iloc[-2] and ema_short.iloc[-1] < ema_long.iloc[-1]:
-        return "BEARISH CROSS"
-    else:
-        return "NO CROSS"
+def safe_ema(series, period):
+    if EMAIndicator is None:
+        return None
+    return EMAIndicator(series, period).ema_indicator()
 
-# Analyze function
-def analyze_timeframe(symbol: str, interval: str, period: str) -> dict:
-    df = yf.download(symbol, interval=interval, period=period, progress=False, auto_adjust=False)
-    if df.empty:
-        return {"error": "No data"}
-    
-    df = clean_df(df)
-    df["EMA_5"] = EMAIndicator(df["Close"], 5).ema_indicator()
-    df["EMA_10"] = EMAIndicator(df["Close"], 10).ema_indicator()
-    df["EMA_20"] = EMAIndicator(df["Close"], 20).ema_indicator()
-    df["EMA_50"] = EMAIndicator(df["Close"], 50).ema_indicator()
-    df["VWAP"] = calculate_vwap(df)
-    
-    return {
-        "Price": round(float(df["Close"].iloc[-1]), 2),
-        "VWAP": round(float(df["VWAP"].iloc[-1]), 2),
-        "EMA_5": round(float(df["EMA_5"].iloc[-1]), 2),
-        "EMA_10": round(float(df["EMA_10"].iloc[-1]), 2),
-        "EMA_20": round(float(df["EMA_20"].iloc[-1]), 2),
-        "EMA_50": round(float(df["EMA_50"].iloc[-1]), 2),
-        "EMA_5_10_Cross": ema_cross(df, 5, 10)
-    }
+# ---------------- ANALYSIS ----------------
+def analyze_timeframe(symbol, interval, period):
+    try:
+        df = yf.download(
+            symbol,
+            interval=interval,
+            period=period,
+            progress=False,
+            threads=False
+        )
 
-# API endpoints
+        if df.empty:
+            return {"error": "No data from Yahoo"}
+
+        df = clean_df(df)
+
+        if len(df) < 30:
+            return {"error": "Not enough candles"}
+
+        ema5 = safe_ema(df["Close"], 5)
+        ema10 = safe_ema(df["Close"], 10)
+        ema20 = safe_ema(df["Close"], 20)
+        ema50 = safe_ema(df["Close"], 50)
+
+        df["VWAP"] = calculate_vwap(df)
+
+        return {
+            "Price": round(float(df["Close"].iloc[-1]), 2),
+            "VWAP": round(float(df["VWAP"].iloc[-1]), 2),
+            "EMA_5": None if ema5 is None else round(float(ema5.iloc[-1]), 2),
+            "EMA_10": None if ema10 is None else round(float(ema10.iloc[-1]), 2),
+            "EMA_20": None if ema20 is None else round(float(ema20.iloc[-1]), 2),
+            "EMA_50": None if ema50 is None else round(float(ema50.iloc[-1]), 2),
+        }
+
+    except Exception as e:
+        return {"error": str(e)}
+
+# ---------------- API ----------------
 @app.get("/health")
 def health():
     return {"status": "OK"}
 
 @app.get("/analyze")
-def analyze(symbol: str = Query(..., description="Stock symbol like RELIANCE.NS")):
+def analyze(symbol: str = Query(...)):
     daily = analyze_timeframe(symbol, "1d", "6mo")
     weekly = analyze_timeframe(symbol, "1wk", "2y")
     monthly = analyze_timeframe(symbol, "1mo", "5y")
 
     if "error" in daily:
-        return {"error": "Invalid symbol or no data"}
+        return {"error": daily["error"]}
 
-    # Simple daily prediction
     score = 0
-    if daily["EMA_5"] > daily["EMA_10"]:
+    if daily["EMA_5"] and daily["EMA_10"] and daily["EMA_5"] > daily["EMA_10"]:
         score += 1
-    if daily["EMA_10"] > daily["EMA_20"]:
+    if daily["EMA_10"] and daily["EMA_20"] and daily["EMA_10"] > daily["EMA_20"]:
         score += 1
     if daily["Price"] > daily["VWAP"]:
         score += 1
 
-    signal = "HOLD"
-    if score == 3:
-        signal = "BUY"
-    elif score == 0:
-        signal = "SELL"
-
-    probability = round((score / 3) * 100, 2)
+    signal = "BUY" if score == 3 else "SELL" if score == 0 else "HOLD"
 
     return {
         "symbol": symbol,
-        "prediction_based_on": "DAILY",
         "signal": signal,
-        "probability_%": probability,
+        "probability_%": round((score / 3) * 100, 2),
         "analysis": {
             "Daily": daily,
             "Weekly": weekly,
@@ -105,9 +110,9 @@ def analyze(symbol: str = Query(..., description="Stock symbol like RELIANCE.NS"
         }
     }
 
-# Serve frontend
+# ---------------- STATIC ----------------
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
-def root_redirect():
+def root():
     return RedirectResponse(url="/static/index.html")
