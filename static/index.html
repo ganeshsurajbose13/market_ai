@@ -3,51 +3,119 @@
 <head>
 <meta charset="UTF-8">
 <title>Market AI Search</title>
+
 <style>
-body { font-family: Arial; margin: 30px; }
-input, button { padding: 8px; font-size: 16px; }
-table { border-collapse: collapse; margin-top: 20px; }
-th, td { border: 1px solid #333; padding: 8px; }
+body {
+    font-family: Arial, sans-serif;
+    margin: 40px;
+}
+
+h1 {
+    font-size: 28px;
+}
+
+input {
+    padding: 8px;
+    font-size: 16px;
+    width: 250px;
+}
+
+button {
+    padding: 8px 16px;
+    font-size: 16px;
+    cursor: pointer;
+}
+
+table {
+    border-collapse: collapse;
+    margin-top: 20px;
+}
+
+th, td {
+    border: 1px solid #333;
+    padding: 8px 12px;
+    text-align: center;
+}
+
+#result {
+    margin-top: 20px;
+    font-size: 16px;
+}
 </style>
 </head>
+
 <body>
+
 <h1>📈 Market AI Search</h1>
-<input type="text" id="symbol" placeholder="Enter stock symbol like RELIANCE.NS">
+
+<input type="text" id="symbol" placeholder="Enter stock symbol (BHEL.NS)">
 <button onclick="analyze()">Analyze</button>
 
 <div id="result"></div>
 
 <script>
 async function analyze() {
-    const symbol = document.getElementById('symbol').value;
-    if (!symbol) return alert("Enter a stock symbol!");
+    const symbol = document.getElementById("symbol").value.trim();
+
+    if (!symbol) {
+        alert("Please enter a stock symbol");
+        return;
+    }
+
+    document.getElementById("result").innerHTML = "⏳ Loading...";
 
     try {
-        const res = await fetch(`/analyze?symbol=${symbol}`);
-        const data = await res.json();
-        console.log("Received:", data);
+        const url = `${window.location.origin}/analyze?symbol=${symbol}`;
+        console.log("Calling API:", url);
+
+        const response = await fetch(url);
+        const data = await response.json();
+        console.log("Response:", data);
 
         if (data.error) {
-            document.getElementById('result').innerHTML = "❌ " + data.error;
+            document.getElementById("result").innerHTML =
+                "❌ " + data.error;
             return;
         }
 
-        let html = `<h2>${symbol} — ${data.signal} (${data.probability_%}%)</h2>`;
-        html += "<table><tr><th>Timeframe</th><th>Price</th><th>VWAP</th><th>EMA5</th><th>EMA10</th><th>EMA20</th></tr>";
+        let html = `
+        <h2>${data.symbol} — ${data.signal} (${data["probability_%"]}%)</h2>
+
+        <table>
+            <tr>
+                <th>Timeframe</th>
+                <th>Price</th>
+                <th>VWAP</th>
+                <th>EMA 5</th>
+                <th>EMA 10</th>
+                <th>EMA 20</th>
+            </tr>
+        `;
 
         for (let tf in data.analysis) {
             const d = data.analysis[tf];
-            html += `<tr><td>${tf}</td><td>${d.Price}</td><td>${d.VWAP}</td><td>${d.EMA_5}</td><td>${d.EMA_10}</td><td>${d.EMA_20}</td></tr>`;
+            html += `
+            <tr>
+                <td>${tf}</td>
+                <td>${d.Price}</td>
+                <td>${d.VWAP}</td>
+                <td>${d.EMA_5}</td>
+                <td>${d.EMA_10}</td>
+                <td>${d.EMA_20}</td>
+            </tr>
+            `;
         }
 
         html += "</table>";
-        document.getElementById('result').innerHTML = html;
+        document.getElementById("result").innerHTML = html;
 
     } catch (err) {
         console.error(err);
-        document.getElementById('result').innerHTML = "❌ Error fetching data.";
+        document.getElementById("result").innerHTML =
+            "❌ Backend not reachable";
     }
 }
 </script>
+
 </body>
 </html>
