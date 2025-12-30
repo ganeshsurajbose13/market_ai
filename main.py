@@ -4,74 +4,58 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 import pandas as pd
 import yfinance as yf
-from ta.trend import EMAIndicator
 
-app = FastAPI(title="Market AI Engine – Stable v9")
+app = FastAPI(title="Market AI Engine – Stable v10")
 
 # ---------------- CORS ----------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ---------------- UTILITIES ----------------
-def clean_df(df: pd.DataFrame) -> pd.DataFrame:
-    df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
-    df = df.apply(pd.to_numeric, errors="coerce")
-    df.dropna(inplace=True)
+# ---------------- UTIL ----------------
+def safe_series(x):
+    """Force 1D pandas Series"""
+    return pd.Series(x.values.reshape(-1))
 
-    # 🔴 FORCE 1-D SERIES (CRITICAL FIX)
-    df["Close"] = pd.Series(df["Close"].values.flatten())
-    df["High"] = pd.Series(df["High"].values.flatten())
-    df["Low"] = pd.Series(df["Low"].values.flatten())
-    df["Volume"] = pd.Series(df["Volume"].values.flatten())
-
-    return df
-
-def calculate_vwap(df: pd.DataFrame) -> pd.Series:
-    tp = (df["High"] + df["Low"] + df["Close"]) / 3
-    return (tp * df["Volume"]).cumsum() / df["Volume"].cumsum()
-
-def ema(series: pd.Series, period: int) -> pd.Series:
-    series = pd.Series(series.values.flatten())  # 🔴 FORCE 1D AGAIN
-    return EMAIndicator(series, period).ema_indicator()
-
-# ---------------- ANALYSIS ----------------
-def analyze_timeframe(symbol: str, interval: str, period: str) -> dict:
+def analyze_timeframe(symbol, interval, period):
     try:
         df = yf.download(
             symbol,
             interval=interval,
             period=period,
-            progress=False,
-            auto_adjust=False
+            progress=False
         )
 
         if df.empty:
             return {"error": "No data from Yahoo"}
 
-        df = clean_df(df)
+        # 🔴 FIX MULTIINDEX (RENDER ISSUE)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
 
-        if len(df) < 60:
-            return {"error": "Not enough data"}
+        df = df[["Open", "High", "Low", "Close", "Volume"]].dropna()
 
-        ema5 = ema(df["Close"], 5)
-        ema10 = ema(df["Close"], 10)
-        ema20 = ema(df["Close"], 20)
-        ema50 = ema(df["Close"], 50)
+        close = safe_series(df["Close"])
+        high = safe_series(df["High"])
+        low = safe_series(df["Low"])
+        volume = safe_series(df["Volume"])
 
-        df["VWAP"] = calculate_vwap(df)
+        # EMA manual (NO ta LIBRARY → SAFE)
+        ema5 = close.ewm(span=5).mean().iloc[-1]
+        ema10 = close.ewm(span=10).mean().iloc[-1]
+        ema20 = close.ewm(span=20).mean().iloc[-1]
+
+        vwap = ((high + low + close) / 3 * volume).cumsum() / volume.cumsum()
 
         return {
-            "Price": round(float(df["Close"].iloc[-1]), 2),
-            "VWAP": round(float(df["VWAP"].iloc[-1]), 2),
-            "EMA_5": round(float(ema5.iloc[-1]), 2),
-            "EMA_10": round(float(ema10.iloc[-1]), 2),
-            "EMA_20": round(float(ema20.iloc[-1]), 2),
-            "EMA_50": round(float(ema50.iloc[-1]), 2),
+            "Price": round(float(close.iloc[-1]), 2),
+            "VWAP": round(float(vwap.iloc[-1]), 2),
+            "EMA_5": round(float(ema5), 2),
+            "EMA_10": round(float(ema10), 2),
+            "EMA_20": round(float(ema20), 2),
         }
 
     except Exception as e:
@@ -85,8 +69,6 @@ def health():
 @app.get("/analyze")
 def analyze(symbol: str = Query(...)):
     daily = analyze_timeframe(symbol, "1d", "6mo")
-    weekly = analyze_timeframe(symbol, "1wk", "2y")
-    monthly = analyze_timeframe(symbol, "1mo", "5y")
 
     if "error" in daily:
         return {"error": daily["error"]}
@@ -106,9 +88,7 @@ def analyze(symbol: str = Query(...)):
         "signal": signal,
         "probability_%": round((score / 3) * 100, 2),
         "analysis": {
-            "Daily": daily,
-            "Weekly": weekly,
-            "Monthly": monthly
+            "Daily": daily
         }
     }
 
@@ -117,4 +97,4 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
 def root():
-    return RedirectResponse(url="/static/index.html")
+    return RedirectResponse("/static/index.html")
