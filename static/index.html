@@ -2,118 +2,105 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Market AI Search</title>
+<title>Market AI Dashboard</title>
+
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
 
 <style>
 body {
     font-family: Arial, sans-serif;
-    margin: 40px;
+    margin: 30px;
 }
-
-h1 {
-    font-size: 28px;
-}
-
-input {
+input, button {
     padding: 8px;
     font-size: 16px;
-    width: 250px;
 }
-
-button {
-    padding: 8px 16px;
-    font-size: 16px;
-    cursor: pointer;
-}
-
-table {
-    border-collapse: collapse;
+#chart {
+    width: 100%;
+    height: 500px;
     margin-top: 20px;
-}
-
-th, td {
-    border: 1px solid #333;
-    padding: 8px 12px;
-    text-align: center;
-}
-
-#result {
-    margin-top: 20px;
-    font-size: 16px;
 }
 </style>
 </head>
 
 <body>
 
-<h1>📈 Market AI Search</h1>
+<h1>📈 Market AI Dashboard</h1>
 
-<input type="text" id="symbol" placeholder="Enter stock symbol (BHEL.NS)">
+<input id="symbol" placeholder="Enter symbol (BHEL.NS)">
 <button onclick="analyze()">Analyze</button>
 
 <div id="result"></div>
+<div id="chart"></div>
 
 <script>
 async function analyze() {
     const symbol = document.getElementById("symbol").value.trim();
-
     if (!symbol) {
-        alert("Please enter a stock symbol");
+        alert("Enter stock symbol");
         return;
     }
 
-    document.getElementById("result").innerHTML = "⏳ Loading...";
+    document.getElementById("result").innerHTML = "Loading...";
 
-    try {
-        const url = `${window.location.origin}/analyze?symbol=${symbol}`;
-        console.log("Calling API:", url);
+    const res = await fetch(`/analyze?symbol=${symbol}`);
+    const data = await res.json();
 
-        const response = await fetch(url);
-        const data = await response.json();
-        console.log("Response:", data);
-
-        if (data.error) {
-            document.getElementById("result").innerHTML =
-                "❌ " + data.error;
-            return;
-        }
-
-        let html = `
-        <h2>${data.symbol} — ${data.signal} (${data["probability_%"]}%)</h2>
-
-        <table>
-            <tr>
-                <th>Timeframe</th>
-                <th>Price</th>
-                <th>VWAP</th>
-                <th>EMA 5</th>
-                <th>EMA 10</th>
-                <th>EMA 20</th>
-            </tr>
-        `;
-
-        for (let tf in data.analysis) {
-            const d = data.analysis[tf];
-            html += `
-            <tr>
-                <td>${tf}</td>
-                <td>${d.Price}</td>
-                <td>${d.VWAP}</td>
-                <td>${d.EMA_5}</td>
-                <td>${d.EMA_10}</td>
-                <td>${d.EMA_20}</td>
-            </tr>
-            `;
-        }
-
-        html += "</table>";
-        document.getElementById("result").innerHTML = html;
-
-    } catch (err) {
-        console.error(err);
-        document.getElementById("result").innerHTML =
-            "❌ Backend not reachable";
+    if (data.error) {
+        document.getElementById("result").innerHTML = "❌ " + data.error;
+        return;
     }
+
+    document.getElementById("result").innerHTML =
+        `<h3>${data.symbol} → ${data.signal} (${data.probability_%}%)</h3>`;
+
+    loadChart(symbol);
+}
+
+async function loadChart(symbol) {
+    const res = await fetch(`/chart-data?symbol=${symbol}`);
+    const d = await res.json();
+
+    if (d.error) {
+        alert(d.error);
+        return;
+    }
+
+    const candle = {
+        x: d.date,
+        open: d.open,
+        high: d.high,
+        low: d.low,
+        close: d.close,
+        type: "candlestick",
+        name: "Price"
+    };
+
+    const ema5 = {
+        x: d.date,
+        y: d.ema5,
+        type: "scatter",
+        name: "EMA 5"
+    };
+
+    const ema10 = {
+        x: d.date,
+        y: d.ema10,
+        type: "scatter",
+        name: "EMA 10"
+    };
+
+    const ema20 = {
+        x: d.date,
+        y: d.ema20,
+        type: "scatter",
+        name: "EMA 20"
+    };
+
+    Plotly.newPlot("chart", [candle, ema5, ema10, ema20], {
+        title: "Candlestick + EMA",
+        xaxis: { rangeslider: { visible: false } }
+    });
 }
 </script>
 

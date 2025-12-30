@@ -5,7 +5,7 @@ from fastapi.responses import RedirectResponse
 import pandas as pd
 import yfinance as yf
 
-app = FastAPI(title="Market AI Engine – Stable v11")
+app = FastAPI(title="Market AI Engine – Stable v12")
 
 # ---------------- CORS ----------------
 app.add_middleware(
@@ -95,6 +95,44 @@ def analyze(symbol: str = Query(...)):
             "Monthly": monthly
         }
     }
+
+# ---------------- CHART DATA API ----------------
+@app.get("/chart-data")
+def chart_data(symbol: str = Query(...)):
+    try:
+        df = yf.download(
+            symbol,
+            interval="1d",
+            period="6mo",
+            progress=False
+        )
+
+        if df.empty:
+            return {"error": "No data"}
+
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+
+        df = df[["Open", "High", "Low", "Close"]].dropna()
+
+        close = safe_series(df["Close"])
+        df["EMA_5"] = compute_ema(close, 5)
+        df["EMA_10"] = compute_ema(close, 10)
+        df["EMA_20"] = compute_ema(close, 20)
+
+        return {
+            "date": df.index.strftime("%Y-%m-%d").tolist(),
+            "open": df["Open"].round(2).tolist(),
+            "high": df["High"].round(2).tolist(),
+            "low": df["Low"].round(2).tolist(),
+            "close": df["Close"].round(2).tolist(),
+            "ema5": df["EMA_5"].round(2).tolist(),
+            "ema10": df["EMA_10"].round(2).tolist(),
+            "ema20": df["EMA_20"].round(2).tolist(),
+        }
+
+    except Exception as e:
+        return {"error": str(e)}
 
 # ---------------- STATIC ----------------
 app.mount("/static", StaticFiles(directory="static"), name="static")
