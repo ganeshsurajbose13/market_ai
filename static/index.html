@@ -1,25 +1,14 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="UTF-8">
 <title>Market AI Dashboard</title>
-
 <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
 
 <style>
-body {
-    font-family: Arial, sans-serif;
-    margin: 30px;
-}
-input, button {
-    padding: 8px;
-    font-size: 16px;
-}
-#chart {
-    width: 100%;
-    height: 500px;
-    margin-top: 20px;
-}
+body { font-family: Arial; margin: 30px; }
+input, button { padding: 8px; font-size: 16px; }
+#chart { height: 500px; }
 </style>
 </head>
 
@@ -27,7 +16,7 @@ input, button {
 
 <h1>📈 Market AI Dashboard</h1>
 
-<input id="symbol" placeholder="Enter symbol (BHEL.NS)">
+<input id="symbol" placeholder="BHEL.NS">
 <button onclick="analyze()">Analyze</button>
 
 <div id="result"></div>
@@ -36,10 +25,7 @@ input, button {
 <script>
 async function analyze() {
     const symbol = document.getElementById("symbol").value.trim();
-    if (!symbol) {
-        alert("Enter stock symbol");
-        return;
-    }
+    if (!symbol) return alert("Enter symbol");
 
     document.getElementById("result").innerHTML = "Loading...";
 
@@ -47,12 +33,16 @@ async function analyze() {
     const data = await res.json();
 
     if (data.error) {
-        document.getElementById("result").innerHTML = "❌ " + data.error;
+        document.getElementById("result").innerHTML = data.error;
         return;
     }
 
-    document.getElementById("result").innerHTML =
-        `<h3>${data.symbol} → ${data.signal} (${data.probability_%}%)</h3>`;
+    document.getElementById("result").innerHTML = `
+        <h3>${data.symbol} → ${data.signal} (${data.probability_%}%)</h3>
+        <b>AI Prediction</b><br>
+        Regression: ${data.ai_prediction.Regression}<br>
+        LSTM: ${data.ai_prediction.LSTM}
+    `;
 
     loadChart(symbol);
 }
@@ -60,11 +50,6 @@ async function analyze() {
 async function loadChart(symbol) {
     const res = await fetch(`/chart-data?symbol=${symbol}`);
     const d = await res.json();
-
-    if (d.error) {
-        alert(d.error);
-        return;
-    }
 
     const candle = {
         x: d.date,
@@ -76,28 +61,12 @@ async function loadChart(symbol) {
         name: "Price"
     };
 
-    const ema5 = {
-        x: d.date,
-        y: d.ema5,
-        type: "scatter",
-        name: "EMA 5"
-    };
-
-    const ema10 = {
-        x: d.date,
-        y: d.ema10,
-        type: "scatter",
-        name: "EMA 10"
-    };
-
-    const ema20 = {
-        x: d.date,
-        y: d.ema20,
-        type: "scatter",
-        name: "EMA 20"
-    };
-
-    Plotly.newPlot("chart", [candle, ema5, ema10, ema20], {
+    Plotly.newPlot("chart", [
+        candle,
+        { x: d.date, y: d.ema5, type: "scatter", name: "EMA 5" },
+        { x: d.date, y: d.ema10, type: "scatter", name: "EMA 10" },
+        { x: d.date, y: d.ema20, type: "scatter", name: "EMA 20" }
+    ], {
         title: "Candlestick + EMA",
         xaxis: { rangeslider: { visible: false } }
     });
