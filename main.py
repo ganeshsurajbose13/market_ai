@@ -4,13 +4,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 import pandas as pd
 import yfinance as yf
+from ta.trend import EMAIndicator
 
-try:
-    from ta.trend import EMAIndicator
-except Exception:
-    EMAIndicator = None
-
-app = FastAPI(title="Market AI Engine – Stable")
+app = FastAPI(title="Market AI Engine – Stable v9")
 
 # ---------------- CORS ----------------
 app.add_middleware(
@@ -22,30 +18,36 @@ app.add_middleware(
 )
 
 # ---------------- UTILITIES ----------------
-def clean_df(df):
-    df = df[["Open", "High", "Low", "Close", "Volume"]]
+def clean_df(df: pd.DataFrame) -> pd.DataFrame:
+    df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
     df = df.apply(pd.to_numeric, errors="coerce")
     df.dropna(inplace=True)
+
+    # 🔴 FORCE 1-D SERIES (CRITICAL FIX)
+    df["Close"] = pd.Series(df["Close"].values.flatten())
+    df["High"] = pd.Series(df["High"].values.flatten())
+    df["Low"] = pd.Series(df["Low"].values.flatten())
+    df["Volume"] = pd.Series(df["Volume"].values.flatten())
+
     return df
 
-def calculate_vwap(df):
+def calculate_vwap(df: pd.DataFrame) -> pd.Series:
     tp = (df["High"] + df["Low"] + df["Close"]) / 3
     return (tp * df["Volume"]).cumsum() / df["Volume"].cumsum()
 
-def safe_ema(series, period):
-    if EMAIndicator is None:
-        return None
+def ema(series: pd.Series, period: int) -> pd.Series:
+    series = pd.Series(series.values.flatten())  # 🔴 FORCE 1D AGAIN
     return EMAIndicator(series, period).ema_indicator()
 
 # ---------------- ANALYSIS ----------------
-def analyze_timeframe(symbol, interval, period):
+def analyze_timeframe(symbol: str, interval: str, period: str) -> dict:
     try:
         df = yf.download(
             symbol,
             interval=interval,
             period=period,
             progress=False,
-            threads=False
+            auto_adjust=False
         )
 
         if df.empty:
@@ -53,23 +55,23 @@ def analyze_timeframe(symbol, interval, period):
 
         df = clean_df(df)
 
-        if len(df) < 30:
-            return {"error": "Not enough candles"}
+        if len(df) < 60:
+            return {"error": "Not enough data"}
 
-        ema5 = safe_ema(df["Close"], 5)
-        ema10 = safe_ema(df["Close"], 10)
-        ema20 = safe_ema(df["Close"], 20)
-        ema50 = safe_ema(df["Close"], 50)
+        ema5 = ema(df["Close"], 5)
+        ema10 = ema(df["Close"], 10)
+        ema20 = ema(df["Close"], 20)
+        ema50 = ema(df["Close"], 50)
 
         df["VWAP"] = calculate_vwap(df)
 
         return {
             "Price": round(float(df["Close"].iloc[-1]), 2),
             "VWAP": round(float(df["VWAP"].iloc[-1]), 2),
-            "EMA_5": None if ema5 is None else round(float(ema5.iloc[-1]), 2),
-            "EMA_10": None if ema10 is None else round(float(ema10.iloc[-1]), 2),
-            "EMA_20": None if ema20 is None else round(float(ema20.iloc[-1]), 2),
-            "EMA_50": None if ema50 is None else round(float(ema50.iloc[-1]), 2),
+            "EMA_5": round(float(ema5.iloc[-1]), 2),
+            "EMA_10": round(float(ema10.iloc[-1]), 2),
+            "EMA_20": round(float(ema20.iloc[-1]), 2),
+            "EMA_50": round(float(ema50.iloc[-1]), 2),
         }
 
     except Exception as e:
@@ -90,9 +92,9 @@ def analyze(symbol: str = Query(...)):
         return {"error": daily["error"]}
 
     score = 0
-    if daily["EMA_5"] and daily["EMA_10"] and daily["EMA_5"] > daily["EMA_10"]:
+    if daily["EMA_5"] > daily["EMA_10"]:
         score += 1
-    if daily["EMA_10"] and daily["EMA_20"] and daily["EMA_10"] > daily["EMA_20"]:
+    if daily["EMA_10"] > daily["EMA_20"]:
         score += 1
     if daily["Price"] > daily["VWAP"]:
         score += 1
