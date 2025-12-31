@@ -1,33 +1,74 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <title>Market AI Dashboard</title>
-<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <style>
-body { font-family: Arial; margin: 30px; }
-input, button { padding: 8px; font-size: 16px; }
-#chart { height: 500px; }
+body {
+    font-family: Arial, sans-serif;
+    background: #0f172a;
+    color: #e5e7eb;
+    margin: 0;
+    padding: 20px;
+}
+.container {
+    max-width: 1100px;
+    margin: auto;
+}
+input, button {
+    padding: 10px;
+    font-size: 16px;
+}
+button {
+    cursor: pointer;
+    background: #2563eb;
+    color: white;
+    border: none;
+}
+.card {
+    background: #020617;
+    padding: 15px;
+    margin-top: 20px;
+    border-radius: 8px;
+}
+.signal {
+    font-size: 24px;
+    font-weight: bold;
+}
+.buy { color: #22c55e; }
+.sell { color: #ef4444; }
+.hold { color: #eab308; }
+canvas {
+    background: #020617;
+}
 </style>
 </head>
 
 <body>
+<div class="container">
 
-<h1>📈 Market AI Dashboard</h1>
+<h1>📊 Market AI Engine</h1>
 
-<input id="symbol" placeholder="BHEL.NS">
+<input id="symbol" placeholder="BHEL.NS" />
 <button onclick="analyze()">Analyze</button>
 
-<div id="result"></div>
-<div id="chart"></div>
+<div class="card" id="result"></div>
+
+<div class="card">
+<canvas id="chart"></canvas>
+</div>
+
+</div>
 
 <script>
-async function analyze() {
-    const symbol = document.getElementById("symbol").value.trim();
-    if (!symbol) return alert("Enter symbol");
+let chart;
 
-    document.getElementById("result").innerHTML = "Loading...";
+async function analyze() {
+    const symbol = document.getElementById("symbol").value;
+    if (!symbol) return alert("Enter symbol");
 
     const res = await fetch(`/analyze?symbol=${symbol}`);
     const data = await res.json();
@@ -37,11 +78,20 @@ async function analyze() {
         return;
     }
 
+    let signalClass = "hold";
+    if (data.final_signal.includes("BUY")) signalClass = "buy";
+    if (data.final_signal.includes("SELL")) signalClass = "sell";
+
     document.getElementById("result").innerHTML = `
-        <h3>${data.symbol} → ${data.signal} (${data.probability_%}%)</h3>
-        <b>AI Prediction</b><br>
-        Regression: ${data.ai_prediction.Regression}<br>
-        LSTM: ${data.ai_prediction.LSTM}
+        <div class="signal ${signalClass}">
+            ${data.final_signal}
+        </div>
+        <p><b>Trend:</b> ${data.trend_model}</p>
+        <p><b>Futures OI:</b> ${data.futures_oi}</p>
+        <p><b>Options OI:</b> ${data.options_oi}</p>
+        <p><b>Regression:</b> ${data.ai_prediction.Regression}</p>
+        <p><b>LSTM:</b> ${data.ai_prediction.LSTM}</p>
+        <p><b>Backtest Return:</b> ${data.backtest_return_}%</p>
     `;
 
     loadChart(symbol);
@@ -51,24 +101,47 @@ async function loadChart(symbol) {
     const res = await fetch(`/chart-data?symbol=${symbol}`);
     const d = await res.json();
 
-    const candle = {
-        x: d.date,
-        open: d.open,
-        high: d.high,
-        low: d.low,
-        close: d.close,
-        type: "candlestick",
-        name: "Price"
-    };
+    const ctx = document.getElementById("chart");
 
-    Plotly.newPlot("chart", [
-        candle,
-        { x: d.date, y: d.ema5, type: "scatter", name: "EMA 5" },
-        { x: d.date, y: d.ema10, type: "scatter", name: "EMA 10" },
-        { x: d.date, y: d.ema20, type: "scatter", name: "EMA 20" }
-    ], {
-        title: "Candlestick + EMA",
-        xaxis: { rangeslider: { visible: false } }
+    if (chart) chart.destroy();
+
+    chart = new Chart(ctx, {
+        type: "line",
+        data: {
+            labels: d.date,
+            datasets: [
+                {
+                    label: "Close",
+                    data: d.close,
+                    borderWidth: 2
+                },
+                {
+                    label: "EMA 5",
+                    data: d.ema5,
+                    borderWidth: 1
+                },
+                {
+                    label: "EMA 10",
+                    data: d.ema10,
+                    borderWidth: 1
+                },
+                {
+                    label: "EMA 20",
+                    data: d.ema20,
+                    borderWidth: 1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { labels: { color: "#e5e7eb" } }
+            },
+            scales: {
+                x: { ticks: { color: "#94a3b8" } },
+                y: { ticks: { color: "#94a3b8" } }
+            }
+        }
     });
 }
 </script>
