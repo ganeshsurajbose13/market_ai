@@ -1,150 +1,22 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8">
-<title>Market AI Dashboard</title>
-
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-<style>
-body {
-    font-family: Arial, sans-serif;
-    background: #0f172a;
-    color: #e5e7eb;
-    margin: 0;
-    padding: 20px;
-}
-.container {
-    max-width: 1100px;
-    margin: auto;
-}
-input, button {
-    padding: 10px;
-    font-size: 16px;
-}
-button {
-    cursor: pointer;
-    background: #2563eb;
-    color: white;
-    border: none;
-}
-.card {
-    background: #020617;
-    padding: 15px;
-    margin-top: 20px;
-    border-radius: 8px;
-}
-.signal {
-    font-size: 24px;
-    font-weight: bold;
-}
-.buy { color: #22c55e; }
-.sell { color: #ef4444; }
-.hold { color: #eab308; }
-canvas {
-    background: #020617;
-}
-</style>
+  <title>Market AI Pro</title>
 </head>
-
 <body>
-<div class="container">
+<h2>Market AI Professional Dashboard</h2>
 
-<h1>📊 Market AI Engine</h1>
+<input id="symbol" value="ITC.NS"/>
+<button onclick="run()">Analyze</button>
 
-<input id="symbol" placeholder="BHEL.NS" />
-<button onclick="analyze()">Analyze</button>
-
-<div class="card" id="result"></div>
-
-<div class="card">
-<canvas id="chart"></canvas>
-</div>
-
-</div>
+<pre id="out"></pre>
 
 <script>
-let chart;
-
-async function analyze() {
-    const symbol = document.getElementById("symbol").value;
-    if (!symbol) return alert("Enter symbol");
-
-    const res = await fetch(`/analyze?symbol=${symbol}`);
-    const data = await res.json();
-
-    if (data.error) {
-        document.getElementById("result").innerHTML = data.error;
-        return;
-    }
-
-    let signalClass = "hold";
-    if (data.final_signal.includes("BUY")) signalClass = "buy";
-    if (data.final_signal.includes("SELL")) signalClass = "sell";
-
-    document.getElementById("result").innerHTML = `
-        <div class="signal ${signalClass}">
-            ${data.final_signal}
-        </div>
-        <p><b>Trend:</b> ${data.trend_model}</p>
-        <p><b>Futures OI:</b> ${data.futures_oi}</p>
-        <p><b>Options OI:</b> ${data.options_oi}</p>
-        <p><b>Regression:</b> ${data.ai_prediction.Regression}</p>
-        <p><b>LSTM:</b> ${data.ai_prediction.LSTM}</p>
-        <p><b>Backtest Return:</b> ${data.backtest_return_}%</p>
-    `;
-
-    loadChart(symbol);
-}
-
-async function loadChart(symbol) {
-    const res = await fetch(`/chart-data?symbol=${symbol}`);
-    const d = await res.json();
-
-    const ctx = document.getElementById("chart");
-
-    if (chart) chart.destroy();
-
-    chart = new Chart(ctx, {
-        type: "line",
-        data: {
-            labels: d.date,
-            datasets: [
-                {
-                    label: "Close",
-                    data: d.close,
-                    borderWidth: 2
-                },
-                {
-                    label: "EMA 5",
-                    data: d.ema5,
-                    borderWidth: 1
-                },
-                {
-                    label: "EMA 10",
-                    data: d.ema10,
-                    borderWidth: 1
-                },
-                {
-                    label: "EMA 20",
-                    data: d.ema20,
-                    borderWidth: 1
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            plugins: {
-                legend: { labels: { color: "#e5e7eb" } }
-            },
-            scales: {
-                x: { ticks: { color: "#94a3b8" } },
-                y: { ticks: { color: "#94a3b8" } }
-            }
-        }
-    });
+function run(){
+ fetch(`/analyze?symbol=${document.getElementById("symbol").value}`)
+ .then(r=>r.json())
+ .then(d=>document.getElementById("out").innerText = JSON.stringify(d,null,2))
 }
 </script>
-
 </body>
 </html>

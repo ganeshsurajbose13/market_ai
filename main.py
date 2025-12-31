@@ -1,228 +1,189 @@
 from fastapi import FastAPI, Query
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
-
+import yfinance as yf
 import pandas as pd
 import numpy as np
-import yfinance as yf
 
 from sklearn.linear_model import LinearRegression
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.preprocessing import StandardScaler
 
-# ==================================================
-# APP
-# ==================================================
-app = FastAPI(title="Market AI Engine – FINAL STABLE COMBO")
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# ================= APP =================
+app = FastAPI(title="Market AI Professional Engine")
 
-# ==================================================
-# UTILITIES (FROM YOUR SUCCESSFUL CODE)
-# ==================================================
-def safe_series(x):
-    return pd.Series(x.values.reshape(-1))
-
-def ema(series, span):
-    return series.ewm(span=span, adjust=False).mean()
-
-def fetch_df(symbol, interval, period):
-    df = yf.download(symbol, interval=interval, period=period, progress=False)
-    if df.empty:
+# ================= UTIL =================
+def fetch_df(symbol, interval="1d", period="1y"):
+    try:
+        df = yf.download(symbol, interval=interval, period=period, progress=False)
+        if df.empty:
+            return None
+        return df
+    except:
         return None
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    return df[["Open", "High", "Low", "Close", "Volume"]].dropna()
 
-# ==================================================
-# TIMEFRAME ANALYSIS (SAFE)
-# ==================================================
-def analyze_timeframe(symbol, interval, period):
+def ema(series, n):
+    return series.ewm(span=n, adjust=False).mean()
+
+def vwap(df):
+    return (df["Volume"] * (df["High"] + df["Low"] + df["Close"]) / 3).cumsum() / df["Volume"].cumsum()
+
+# ================= CORE ANALYSIS =================
+def timeframe_analysis(symbol, interval, period):
     df = fetch_df(symbol, interval, period)
-    if df is None or len(df) < 30:
-        return None
-
-    close = safe_series(df["Close"])
-    high = safe_series(df["High"])
-    low = safe_series(df["Low"])
-    volume = safe_series(df["Volume"])
-
-    vwap = ((high + low + close) / 3 * volume).cumsum() / volume.cumsum()
+    close = df["Close"]
 
     return {
-        "Price": round(float(close.iloc[-1]), 2),
-        "VWAP": round(float(vwap.iloc[-1]), 2),
-        "EMA_5": round(float(ema(close, 5).iloc[-1]), 2),
-        "EMA_10": round(float(ema(close, 10).iloc[-1]), 2),
-        "EMA_20": round(float(ema(close, 20).iloc[-1]), 2),
+        "Price": round(close.iloc[-1], 2),
+        "VWAP": round(vwap(df).iloc[-1], 2),
+        "EMA_5": round(ema(close, 5).iloc[-1], 2),
+        "EMA_10": round(ema(close, 10).iloc[-1], 2),
+        "EMA_20": round(ema(close, 20).iloc[-1], 2)
     }
 
-# ==================================================
-# AI MODELS (YOUR REG + SAFE LSTM)
-# ==================================================
-def regression_prediction(symbol):
-    df = fetch_df(symbol, "1d", "1y")
-    if df is None or len(df) < 60:
-        return "NA"
+# ================= TREND MODEL =================
+def trend_ml_model(symbol):
+    df = fetch_df(symbol, "1d", "2y")
+    df["EMA5"] = ema(df["Close"], 5)
+    df["EMA20"] = ema(df["Close"], 20)
+    df["RET"] = df["Close"].pct_change()
+    df.dropna(inplace=True)
 
-    df["t"] = np.arange(len(df))
-    X = df[["t"]]
-    y = df["Close"]
+    X = df[["EMA5", "EMA20", "RET"]]
+    y = np.where(df["EMA5"] > df["EMA20"], 1, 0)
 
-    model = LinearRegression()
-    model.fit(X, y)
+    scaler = StandardScaler()
+    Xs = scaler.fit_transform(X)
 
-    future_price = model.predict([[len(df)]])[0]
-    return "UP" if future_price > y.iloc[-1] else "DOWN"
+    model = GradientBoostingClassifier()
+    model.fit(Xs[:-1], y[:-1])
 
-def lstm_prediction(symbol):
-    df = fetch_df(symbol, "1d", "6mo")
-    if df is None:
-        return "NA"
+    pred = model.predict(Xs[-1].reshape(1, -1))[0]
+    return "UPTREND" if pred == 1 else "DOWNTREND"
 
-    close = safe_series(df["Close"])
-    slope = ema(close, 5).iloc[-1] - ema(close, 20).iloc[-1]
-    return "UP" if slope > 0 else "DOWN"
-
-# ==================================================
-# FUTURES OI (SAFE APPROXIMATION)
-# ==================================================
-def futures_oi_trend(symbol):
-    df = fetch_df(symbol, "1d", "1mo")
-    if df is None or len(df) < 10:
-        return "UNKNOWN"
-
-    price_change = df["Close"].iloc[-1] - df["Close"].iloc[-5]
-    vol_change = df["Volume"].iloc[-1] - df["Volume"].iloc[-5]
+# ================= FUTURES OI (PROXY) =================
+def futures_oi_proxy(symbol):
+    df = fetch_df(symbol, "1d", "3mo")
+    price_change = df["Close"].pct_change().iloc[-1]
+    vol_change = df["Volume"].pct_change().iloc[-1]
 
     if price_change > 0 and vol_change > 0:
         return "LONG_BUILDUP"
-    if price_change > 0 and vol_change < 0:
-        return "SHORT_COVERING"
     if price_change < 0 and vol_change > 0:
         return "SHORT_BUILDUP"
-    if price_change < 0 and vol_change < 0:
-        return "LONG_UNWINDING"
-    return "NEUTRAL"
+    return "NO_BUILDUP"
 
-# ==================================================
-# OPTIONS OI (VOLATILITY BASED)
-# ==================================================
-def option_oi_buildup(symbol):
+# ================= OPTIONS OI (RULE BASED) =================
+def options_oi_proxy(symbol):
     df = fetch_df(symbol, "1d", "1mo")
-    if df is None:
-        return "UNKNOWN"
+    vol = df["Volume"].iloc[-1]
+    avg = df["Volume"].mean()
 
-    vol = df["Close"].pct_change().std()
+    if vol > avg * 1.5:
+        return "HIGH_ACTIVITY"
+    elif vol < avg * 0.7:
+        return "LOW_ACTIVITY"
+    return "NORMAL_ACTIVITY"
 
-    if vol > 0.03:
-        return "HEAVY_ACTIVITY"
-    if vol > 0.015:
-        return "MODERATE_ACTIVITY"
-    return "LOW_ACTIVITY"
+# ================= REGRESSION =================
+def regression_prediction(symbol):
+    df = fetch_df(symbol, "1d", "6mo")
+    X = np.arange(len(df)).reshape(-1, 1)
+    y = df["Close"].values
 
-# ==================================================
-# RANDOM FOREST TREND CONFIRMATION
-# ==================================================
-def rf_trend(symbol):
-    df = fetch_df(symbol, "1d", "2y")
-    if df is None or len(df) < 120:
-        return "UNKNOWN"
+    model = LinearRegression().fit(X, y)
+    pred = model.predict([[len(df)+5]])[0]
 
-    df["EMA20"] = ema(df["Close"], 20)
-    df["EMA50"] = ema(df["Close"], 50)
-    df["R10"] = df["Close"].pct_change(10)
-    df["R20"] = df["Close"].pct_change(20)
+    return "UP" if pred > y[-1] else "DOWN"
 
-    df["Future"] = df["EMA20"].shift(-10) - df["EMA20"]
-    df["Trend"] = np.where(df["Future"] > 0, 1, -1)
-    df.dropna(inplace=True)
+# ================= LSTM =================
+def lstm_prediction(symbol):
+    df = fetch_df(symbol, "1d", "1y")
+    prices = df["Close"].values[-60:]
 
-    X = df[["EMA20", "EMA50", "R10", "R20"]]
-    y = df["Trend"]
+    X = []
+    y = []
+    for i in range(50):
+        X.append(prices[i:i+5])
+        y.append(prices[i+5])
 
-    model = RandomForestClassifier(n_estimators=200, max_depth=5, random_state=42)
-    model.fit(X[:-1], y[:-1])
+    X, y = np.array(X), np.array(y)
+    X = X.reshape((X.shape[0], X.shape[1], 1))
 
-    return "UPTREND" if model.predict(X.iloc[[-1]])[0] == 1 else "DOWNTREND"
+    model = Sequential([
+        LSTM(32, input_shape=(5,1)),
+        Dense(1)
+    ])
+    model.compile(optimizer="adam", loss="mse")
+    model.fit(X, y, epochs=3, verbose=0)
 
-# ==================================================
-# BACKTEST (EMA STRATEGY)
-# ==================================================
+    pred = model.predict(prices[-5:].reshape(1,5,1), verbose=0)[0][0]
+    return "UP" if pred > prices[-1] else "DOWN"
+
+# ================= BACKTEST =================
 def backtest(symbol):
     df = fetch_df(symbol, "1d", "2y")
-    if df is None:
-        return None
-
     df["EMA5"] = ema(df["Close"], 5)
     df["EMA20"] = ema(df["Close"], 20)
-    df["Signal"] = np.where(df["EMA5"] > df["EMA20"], 1, 0)
-    df["Returns"] = df["Close"].pct_change()
-    df["Strategy"] = df["Signal"].shift(1) * df["Returns"]
 
-    total = (1 + df["Strategy"].fillna(0)).prod() - 1
-    return round(total * 100, 2)
+    df["signal"] = np.where(df["EMA5"] > df["EMA20"], 1, -1)
+    df["ret"] = df["Close"].pct_change()
+    df["strategy"] = df["signal"].shift(1) * df["ret"]
 
-# ==================================================
-# FINAL INFERENCE ENGINE
-# ==================================================
-def final_signal(base, rf, fut):
-    score = base
+    return round(df["strategy"].sum()*100, 2)
 
-    if rf == "UPTREND": score += 1
-    if rf == "DOWNTREND": score -= 1
-
-    if fut in ["LONG_BUILDUP", "SHORT_COVERING"]: score += 1
-    if fut in ["SHORT_BUILDUP", "LONG_UNWINDING"]: score -= 1
-
-    if score >= 4: return "STRONG BUY"
-    if score == 3: return "BUY"
-    if score == 2: return "HOLD"
-    if score == 1: return "SELL"
-    return "STRONG SELL"
-
-# ==================================================
-# API
-# ==================================================
-@app.get("/health")
-def health():
-    return {"status": "OK"}
-
+# ================= FINAL INFERENCE =================
 @app.get("/analyze")
 def analyze(symbol: str = Query(...)):
-    daily = analyze_timeframe(symbol, "1d", "6mo")
-    weekly = analyze_timeframe(symbol, "1wk", "2y")
-    monthly = analyze_timeframe(symbol, "1mo", "5y")
+    daily = timeframe_analysis(symbol, "1d", "6mo")
+    weekly = timeframe_analysis(symbol, "1wk", "2y")
+    monthly = timeframe_analysis(symbol, "1mo", "5y")
 
-    if daily is None:
-        return {"error": "Invalid symbol or no data"}
+    score = 0
+    if daily["EMA_5"] > daily["EMA_20"]: score += 1
+    if weekly["EMA_5"] > weekly["EMA_20"]: score += 1
+    if monthly["EMA_5"] > monthly["EMA_20"]: score += 1
 
-    base = 0
-    if daily["EMA_5"] > daily["EMA_10"]: base += 1
-    if daily["EMA_10"] > daily["EMA_20"]: base += 1
-    if daily["Price"] > daily["VWAP"]: base += 1
+    trend = trend_ml_model(symbol)
+    fut_oi = futures_oi_proxy(symbol)
+    opt_oi = options_oi_proxy(symbol)
 
-    rf = rf_trend(symbol)
-    fut = futures_oi_trend(symbol)
-    opt = option_oi_buildup(symbol)
+    backtest_ret = backtest(symbol)
+    reg = regression_prediction(symbol)
+    lstm = lstm_prediction(symbol)
+
+    final_score = score
+    if trend == "UPTREND": final_score += 1
+    if fut_oi == "LONG_BUILDUP": final_score += 1
+    if reg == "UP": final_score += 1
+    if lstm == "UP": final_score += 1
+
+    if final_score >= 6:
+        final_signal = "STRONG BUY"
+    elif final_score >= 4:
+        final_signal = "BUY"
+    elif final_score == 3:
+        final_signal = "HOLD"
+    elif final_score >= 1:
+        final_signal = "SELL"
+    else:
+        final_signal = "STRONG SELL"
 
     return {
         "symbol": symbol,
-        "final_signal": final_signal(base, rf, fut),
-        "base_score": base,
-        "trend_model": rf,
-        "futures_oi": fut,
-        "options_oi": opt,
+        "final_signal": final_signal,
+        "base_score": score,
+        "trend_model": trend,
+        "futures_oi": fut_oi,
+        "options_oi": opt_oi,
         "ai_prediction": {
-            "Regression": regression_prediction(symbol),
-            "LSTM": lstm_prediction(symbol)
+            "Regression": reg,
+            "LSTM": lstm
         },
-        "backtest_return_%": backtest(symbol),
+        "backtest_return_%": backtest_ret,
         "analysis": {
             "Daily": daily,
             "Weekly": weekly,
@@ -230,34 +191,23 @@ def analyze(symbol: str = Query(...)):
         }
     }
 
-# ==================================================
-# CHART DATA
-# ==================================================
+# ================= CHART DATA =================
 @app.get("/chart-data")
-def chart_data(symbol: str = Query(...)):
+def chart_data(symbol: str):
     df = fetch_df(symbol, "1d", "6mo")
-    if df is None:
-        return {"error": "No data"}
-
-    close = safe_series(df["Close"])
-    df["EMA_5"] = ema(close, 5)
-    df["EMA_10"] = ema(close, 10)
-    df["EMA_20"] = ema(close, 20)
+    df["EMA5"] = ema(df["Close"], 5)
+    df["EMA10"] = ema(df["Close"], 10)
+    df["EMA20"] = ema(df["Close"], 20)
 
     return {
         "date": df.index.strftime("%Y-%m-%d").tolist(),
-        "open": df["Open"].tolist(),
-        "high": df["High"].tolist(),
-        "low": df["Low"].tolist(),
         "close": df["Close"].tolist(),
-        "ema5": df["EMA_5"].round(2).tolist(),
-        "ema10": df["EMA_10"].round(2).tolist(),
-        "ema20": df["EMA_20"].round(2).tolist(),
+        "ema5": df["EMA5"].tolist(),
+        "ema10": df["EMA10"].tolist(),
+        "ema20": df["EMA20"].tolist()
     }
 
-# ==================================================
-# STATIC
-# ==================================================
+# ================= STATIC =================
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
