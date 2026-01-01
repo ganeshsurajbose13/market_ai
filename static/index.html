@@ -1,21 +1,21 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Market AI Pro</title>
+  <title>Market AI</title>
 </head>
 <body>
-<h2>Market AI Professional Dashboard</h2>
+<h2>Market AI Engine</h2>
 
-<input id="symbol" value="ITC.NS"/>
+<input id="sym" placeholder="ITC.NS">
 <button onclick="run()">Analyze</button>
 
 <pre id="out"></pre>
 
 <script>
 function run(){
- fetch(`/analyze?symbol=${document.getElementById("symbol").value}`)
- .then(r=>r.json())
- .then(d=>document.getElementById("out").innerText = JSON.stringify(d,null,2))
+  fetch("/analyze?symbol="+document.getElementById("sym").value)
+  .then(r=>r.json())
+  .then(d=>document.getElementById("out").textContent=JSON.stringify(d,null,2));
 }
 </script>
 </body>
