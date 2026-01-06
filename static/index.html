@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Market AI – Final Dashboard</title>
+<title>Market AI – Professional Stock Analyzer</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <style>
@@ -22,7 +22,7 @@ h1 {
     color: #38bdf8;
 }
 input {
-    width: 70%;
+    width: 65%;
     padding: 12px;
     font-size: 16px;
     border-radius: 6px;
@@ -41,16 +41,17 @@ button:hover {
 }
 .card {
     background: #020617;
-    border-radius: 10px;
+    border-radius: 8px;
     padding: 15px;
     margin-top: 20px;
 }
 .signal {
-    font-size: 30px;
+    font-size: 28px;
     font-weight: bold;
     text-align: center;
 }
-.BUY, .STRONG { color: #22c55e; }
+.STRONG { color: #22c55e; }
+.BUY { color: #4ade80; }
 .HOLD { color: #eab308; }
 .SELL { color: #ef4444; }
 
@@ -68,14 +69,15 @@ th {
     background: #020617;
 }
 ul {
-    margin-top: 8px;
+    margin: 0;
+    padding-left: 20px;
 }
 </style>
 </head>
 
 <body>
 <div class="container">
-<h1>📈 Market AI – Final Trading Engine</h1>
+<h1>📈 Market AI – Professional Stock Analyzer</h1>
 
 <div style="text-align:center;">
     <input id="symbol" placeholder="Enter symbol (SBIN.NS)">
@@ -88,58 +90,50 @@ ul {
 <script>
 async function analyze() {
     const symbol = document.getElementById("symbol").value.trim();
-    if (!symbol) return alert("Enter stock symbol");
+    if (!symbol) {
+        alert("Enter a symbol");
+        return;
+    }
 
-    document.getElementById("output").innerHTML = "⏳ Analyzing...";
+    const out = document.getElementById("output");
+    out.innerHTML = "⏳ Analyzing...";
 
     try {
         const res = await fetch(`/analyze?symbol=${symbol}`);
-        const d = await res.json();
+        const data = await res.json();
 
-        if (d.error) {
-            document.getElementById("output").innerHTML = "❌ Data unavailable";
+        if (data.error) {
+            out.innerHTML = "❌ " + data.error;
             return;
         }
 
         let cls = "HOLD";
-        if (d.final_signal?.includes("BUY")) cls = "BUY";
-        if (d.final_signal?.includes("STRONG")) cls = "STRONG";
-        if (d.final_signal?.includes("SELL")) cls = "SELL";
+        if (data.final_signal.includes("BUY")) cls = "BUY";
+        if (data.final_signal.includes("STRONG")) cls = "STRONG";
+        if (data.final_signal.includes("SELL")) cls = "SELL";
 
-        document.getElementById("output").innerHTML = `
+        out.innerHTML = `
         <div class="card">
-            <div class="signal ${cls}">${d.final_signal}</div>
+            <div class="signal ${cls}">${data.final_signal}</div>
             <p style="text-align:center;">
-                Probability: <b>${d.probability_%}%</b>
+                Probability: <b>${data["probability_%"] ?? "N/A"}%</b>
+            </p>
+            <p style="text-align:center;">
+                AI Model: <b>${data.ai_model ?? "N/A"}</b> |
+                Regression: <b>${data.regression_trend ?? "N/A"}</b>
+            </p>
+            <p style="text-align:center;">
+                Weekly: <b>${data.weekly_trend ?? "N/A"}</b> |
+                Monthly: <b>${data.monthly_trend ?? "N/A"}</b>
+            </p>
+            <p style="text-align:center;">
+                Stop Loss: <b>${data.stop_loss}</b> |
+                Target: <b>${data.target}</b>
             </p>
         </div>
 
         <div class="card">
-            <h3>🤖 Model Predictions</h3>
-            <table>
-                <tr>
-                    <th>AI Model</th>
-                    <th>Regression</th>
-                    <th>Weekly</th>
-                    <th>Monthly</th>
-                </tr>
-                <tr>
-                    <td>${safe(d.ai_model)}</td>
-                    <td>${safe(d.regression_trend)}</td>
-                    <td>${safe(d.weekly_trend)}</td>
-                    <td>${safe(d.monthly_trend)}</td>
-                </tr>
-            </table>
-        </div>
-
-        <div class="card">
-            <h3>🎯 Risk Management</h3>
-            <p>Stop Loss: <b>${d.stop_loss}</b></p>
-            <p>Target: <b>${d.target}</b></p>
-        </div>
-
-        <div class="card">
-            <h3>📊 Timeframe Analysis</h3>
+            <h3>📊 EMA + VWAP Analysis</h3>
             <table>
                 <tr>
                     <th>TF</th>
@@ -148,43 +142,37 @@ async function analyze() {
                     <th>EMA 5</th>
                     <th>EMA 10</th>
                     <th>EMA 20</th>
-                    <th>Bias</th>
                 </tr>
-                ${tfRow("Daily", d.analysis?.Daily)}
-                ${tfRow("1H", d.analysis?.["1H"])}
-                ${tfRow("4H", d.analysis?.["4H"])}
+                ${row("Daily", data.analysis.Daily)}
+                ${data.analysis["1H"] ? row("1H", data.analysis["1H"]) : ""}
+                ${data.analysis["4H"] ? row("4H", data.analysis["4H"]) : ""}
             </table>
         </div>
 
         <div class="card">
-            <h3>📌 Trade Reasons</h3>
+            <h3>🧠 Reasons</h3>
             <ul>
-                ${(d.reason || ["No strong confirmation"]).map(r => `<li>${r}</li>`).join("")}
+                ${(data.reason || []).map(r => `<li>${r}</li>`).join("")}
             </ul>
         </div>
         `;
-    } catch {
-        document.getElementById("output").innerHTML = "❌ Server error";
+    } catch (e) {
+        out.innerHTML = "❌ Server error";
     }
 }
 
-function tfRow(tf, d) {
-    if (!d) return "";
+function row(name, d) {
     return `
     <tr>
-        <td>${tf}</td>
+        <td>${name}</td>
         <td>${d.Price}</td>
         <td>${d.VWAP}</td>
         <td>${d.EMA_5}</td>
         <td>${d.EMA_10}</td>
         <td>${d.EMA_20}</td>
-        <td>${d.Bias}</td>
     </tr>`;
 }
-
-function safe(v) {
-    return v ? v : "UNKNOWN";
-}
 </script>
+
 </body>
 </html>
