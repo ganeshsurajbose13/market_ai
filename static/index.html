@@ -50,8 +50,7 @@ button:hover {
     font-weight: bold;
     text-align: center;
 }
-.BUY { color: #22c55e; }
-.STRONG { color: #22c55e; }
+.BUY, .STRONG { color: #22c55e; }
 .HOLD { color: #eab308; }
 .SELL { color: #ef4444; }
 
@@ -76,23 +75,20 @@ ul {
 
 <body>
 <div class="container">
-    <h1>📈 Market AI – Final Trading Engine</h1>
+<h1>📈 Market AI – Final Trading Engine</h1>
 
-    <div style="text-align:center;">
-        <input id="symbol" placeholder="Enter symbol (SBIN.NS)">
-        <button onclick="analyze()">Analyze</button>
-    </div>
+<div style="text-align:center;">
+    <input id="symbol" placeholder="Enter symbol (SBIN.NS)">
+    <button onclick="analyze()">Analyze</button>
+</div>
 
-    <div id="output"></div>
+<div id="output"></div>
 </div>
 
 <script>
 async function analyze() {
     const symbol = document.getElementById("symbol").value.trim();
-    if (!symbol) {
-        alert("Enter stock symbol");
-        return;
-    }
+    if (!symbol) return alert("Enter stock symbol");
 
     document.getElementById("output").innerHTML = "⏳ Analyzing...";
 
@@ -106,12 +102,11 @@ async function analyze() {
         }
 
         let cls = "HOLD";
-        if (d.final_signal.includes("BUY")) cls = "BUY";
-        if (d.final_signal.includes("STRONG")) cls = "STRONG";
-        if (d.final_signal.includes("SELL")) cls = "SELL";
+        if (d.final_signal?.includes("BUY")) cls = "BUY";
+        if (d.final_signal?.includes("STRONG")) cls = "STRONG";
+        if (d.final_signal?.includes("SELL")) cls = "SELL";
 
         document.getElementById("output").innerHTML = `
-        <!-- SIGNAL -->
         <div class="card">
             <div class="signal ${cls}">${d.final_signal}</div>
             <p style="text-align:center;">
@@ -119,33 +114,30 @@ async function analyze() {
             </p>
         </div>
 
-        <!-- MODELS -->
         <div class="card">
             <h3>🤖 Model Predictions</h3>
             <table>
                 <tr>
                     <th>AI Model</th>
                     <th>Regression</th>
-                    <th>Weekly Trend</th>
-                    <th>Monthly Trend</th>
+                    <th>Weekly</th>
+                    <th>Monthly</th>
                 </tr>
                 <tr>
-                    <td>${d.ai_model}</td>
-                    <td>${d.regression_trend}</td>
-                    <td>${d.weekly_trend}</td>
-                    <td>${d.monthly_trend}</td>
+                    <td>${safe(d.ai_model)}</td>
+                    <td>${safe(d.regression_trend)}</td>
+                    <td>${safe(d.weekly_trend)}</td>
+                    <td>${safe(d.monthly_trend)}</td>
                 </tr>
             </table>
         </div>
 
-        <!-- RISK -->
         <div class="card">
             <h3>🎯 Risk Management</h3>
             <p>Stop Loss: <b>${d.stop_loss}</b></p>
             <p>Target: <b>${d.target}</b></p>
         </div>
 
-        <!-- TIMEFRAMES -->
         <div class="card">
             <h3>📊 Timeframe Analysis</h3>
             <table>
@@ -158,21 +150,20 @@ async function analyze() {
                     <th>EMA 20</th>
                     <th>Bias</th>
                 </tr>
-                ${tfRow("Daily", d.analysis.Daily)}
-                ${tfRow("1H", d.analysis["1H"])}
-                ${tfRow("4H", d.analysis["4H"])}
+                ${tfRow("Daily", d.analysis?.Daily)}
+                ${tfRow("1H", d.analysis?.["1H"])}
+                ${tfRow("4H", d.analysis?.["4H"])}
             </table>
         </div>
 
-        <!-- REASONS -->
         <div class="card">
             <h3>📌 Trade Reasons</h3>
             <ul>
-                ${d.reason.map(r => `<li>${r}</li>`).join("")}
+                ${(d.reason || ["No strong confirmation"]).map(r => `<li>${r}</li>`).join("")}
             </ul>
         </div>
         `;
-    } catch (e) {
+    } catch {
         document.getElementById("output").innerHTML = "❌ Server error";
     }
 }
@@ -188,8 +179,11 @@ function tfRow(tf, d) {
         <td>${d.EMA_10}</td>
         <td>${d.EMA_20}</td>
         <td>${d.Bias}</td>
-    </tr>
-    `;
+    </tr>`;
+}
+
+function safe(v) {
+    return v ? v : "UNKNOWN";
 }
 </script>
 </body>
