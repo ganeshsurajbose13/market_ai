@@ -8,3 +8,8 @@ requests
 scipy
 scikit-learn
 joblib
+scikit-learn
+tensorflow
+joblib
+matplotlib
+xgboost
